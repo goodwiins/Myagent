@@ -1,0 +1,81 @@
+{
+  "name": "goodflows",
+  "version": "1.0.0",
+  "description": "AI-powered code review automation with CodeRabbit, Linear, and Claude. Multi-agent system for automated code review workflows.",
+  "main": "bin/goodflows.js",
+  "type": "module",
+  "bin": {
+    "goodflows": "./bin/goodflows.js"
+  },
+  "scripts": {
+    "start": "node bin/goodflows.js",
+    "install:claude": "node bin/goodflows.js install --cli claude",
+    "install:cursor": "node bin/goodflows.js install --cli cursor",
+    "install:continue": "node bin/goodflows.js install --cli continue",
+    "install:aider": "node bin/goodflows.js install --cli aider",
+    "install:windsurf": "node bin/goodflows.js install --cli windsurf",
+    "postinstall": "node scripts/postinstall.js",
+    "prepublishOnly": "npm run test",
+    "test": "node scripts/test.js",
+    "lint": "echo 'Linting...' && exit 0"
+  },
+  "files": [
+    "agents/",
+    "bin/",
+    "scripts/",
+    "templates/",
+    "config.json",
+    "CLAUDE.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/goodwiins/goodflows.git"
+  },
+  "keywords": [
+    "goodflows",
+    "claude",
+    "ai",
+    "code-review",
+    "coderabbit",
+    "linear",
+    "automation",
+    "agents",
+    "llm",
+    "claude-code",
+    "cursor",
+    "aider",
+    "continue",
+    "windsurf",
+    "anthropic",
+    "developer-tools",
+    "devtools",
+    "code-quality",
+    "issue-tracking",
+    "ai-agents"
+  ],
+  "author": "goodwiins <goodwiins@users.noreply.github.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/goodwiins/goodflows/issues"
+  },
+  "homepage": "https://github.com/goodwiins/goodflows#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "preferGlobal": true,
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "funding": {
+    "type": "github",
+    "url": "https://github.com/sponsors/goodwiins"
+  }
+}

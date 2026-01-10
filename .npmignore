@@ -1,0 +1,26 @@
+# Development files
+.git
+.github
+.claude
+.serena
+.vscode
+
+# Build artifacts
+node_modules
+*.log
+*.tmp
+
+# Root agent files (use agents/ directory)
+review-orchestrator.md
+issue-creator.md
+coderabbit-auto-fixer.md
+
+# Config files
+.gitignore
+.editorconfig
+Makefile
+install.sh
+
+# Test files
+*.test.js
+coverage/

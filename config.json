@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "description": "Myagent configuration file",
+
+  "team": {
+    "id": "",
+    "name": "YOUR_TEAM",
+    "prefix": "GOO"
+  },
+
+  "labels": {
+    "mapping": {
+      "critical_security": ["security", "critical"],
+      "potential_issue": ["bug"],
+      "refactor_suggestion": ["improvement"],
+      "performance": ["performance"],
+      "documentation": ["docs"]
+    },
+    "custom": []
+  },
+
+  "priorities": {
+    "critical_security": 1,
+    "potential_issue": 2,
+    "refactor_suggestion": 3,
+    "performance": 3,
+    "documentation": 4
+  },
+
+  "titlePrefixes": {
+    "critical_security": "[SECURITY]",
+    "potential_issue": "fix:",
+    "refactor_suggestion": "refactor:",
+    "performance": "perf:",
+    "documentation": "docs:"
+  },
+
+  "review": {
+    "type": "uncommitted",
+    "autoFix": false,
+    "priorityThreshold": 4,
+    "groupByFile": true,
+    "checkDuplicates": true
+  },
+
+  "memory": {
+    "enabled": true,
+    "path": ".serena/memories",
+    "files": {
+      "findings": "coderabbit_findings.md",
+      "patterns": "auto_fix_patterns.md",
+      "runs": "agent_runs.md",
+      "queue": "issue_queue.md"
+    }
+  },
+
+  "agents": {
+    "orchestrator": {
+      "model": "sonnet",
+      "enabled": true
+    },
+    "issueCreator": {
+      "model": "haiku",
+      "enabled": true
+    },
+    "autoFixer": {
+      "model": "opus",
+      "enabled": true,
+      "verifyFixes": true,
+      "revertOnFailure": true
+    }
+  },
+
+  "integrations": {
+    "linear": {
+      "enabled": true,
+      "apiKeyEnv": "LINEAR_API_KEY"
+    },
+    "coderabbit": {
+      "enabled": true,
+      "apiKeyEnv": "CODERABBIT_API_KEY"
+    },
+    "serena": {
+      "enabled": true,
+      "mcpServer": "plugin:serena:serena"
+    }
+  },
+
+  "errorHandling": {
+    "retryAttempts": 3,
+    "retryDelayMs": 1000,
+    "queueOnApiFailure": true,
+    "continueOnPartialFailure": true
+  },
+
+  "output": {
+    "format": "markdown",
+    "verbose": false,
+    "includeCodeSnippets": true,
+    "generateReport": true
+  }
+}

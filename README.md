@@ -1,19 +1,86 @@
-# 🤖 Myagent - AI Code Review Automation Suite
+# 🚀 GoodFlows
 
-[![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-blueviolet)](https://claude.ai/code)
+[![npm version](https://img.shields.io/npm/v/goodflows.svg)](https://www.npmjs.com/package/goodflows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-Compatible-blueviolet)](https://claude.ai/code)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
-A powerful multi-agent AI system that automates code review workflows by integrating **CodeRabbit** reviews with **Linear** issue tracking and intelligent auto-fixing capabilities.
+**AI-powered code review automation** with CodeRabbit, Linear, and Claude. A multi-agent system that automates your entire code review workflow.
+
+```
+   ██████╗  ██████╗  ██████╗ ██████╗ ███████╗██╗      ██████╗ ██╗    ██╗███████╗
+  ██╔════╝ ██╔═══██╗██╔═══██╗██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║██╔════╝
+  ██║  ███╗██║   ██║██║   ██║██║  ██║█████╗  ██║     ██║   ██║██║ █╗ ██║███████╗
+  ██║   ██║██║   ██║██║   ██║██║  ██║██╔══╝  ██║     ██║   ██║██║███╗██║╚════██║
+  ╚██████╔╝╚██████╔╝╚██████╔╝██████╔╝██║     ███████╗╚██████╔╝╚███╔███╔╝███████║
+   ╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝
+```
 
 ## ✨ Features
 
 - **🔍 Automated Code Review** - Run CodeRabbit reviews on uncommitted changes, staged files, or PRs
-- **📋 Smart Issue Creation** - Automatically create well-structured Linear issues from review findings
+- **📋 Smart Issue Creation** - Automatically create well-structured Linear issues from findings
 - **🔧 Intelligent Auto-Fixing** - Safely apply fixes with verification and rollback support
 - **🔄 Complete Workflow Orchestration** - End-to-end automation from review to fix
 - **🧠 Memory & Learning** - Remembers past findings and fix patterns for smarter automation
 - **⚡ Multi-Model Optimization** - Uses the right Claude model for each task (Opus/Sonnet/Haiku)
+- **🔌 Multi-CLI Support** - Works with Claude Code, Cursor, Continue, Aider, Windsurf
+
+## 📦 Installation
+
+### NPM (Recommended)
+
+```bash
+npm install -g goodflows
+```
+
+### Bun
+
+```bash
+bun add -g goodflows
+```
+
+### From Source
+
+```bash
+git clone https://github.com/goodwiins/goodflows.git
+cd goodflows
+npm install -g .
+```
+
+## 🚀 Quick Start
+
+### 1. Install Agents for Your CLI
+
+```bash
+# For Claude Code (default)
+goodflows install
+
+# For other CLIs
+goodflows install --cli cursor
+goodflows install --cli continue
+goodflows install --cli aider
+goodflows install --cli windsurf
+
+# Global installation
+goodflows install --global
+```
+
+### 2. Set Up Environment Variables
+
+```bash
+export LINEAR_API_KEY="lin_api_xxxxx"
+export ANTHROPIC_API_KEY="sk-ant-xxxxx"
+```
+
+### 3. Start Using
+
+In your AI coding assistant:
+
+```
+> review and track my changes
+> /fix-linear GOO-31
+```
 
 ## 🏗️ Architecture
 
@@ -36,109 +103,66 @@ A powerful multi-agent AI system that automates code review workflows by integra
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 📦 Installation
+## 🎯 Agents
 
-### Quick Install (Recommended)
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| `review-orchestrator` | Sonnet | Coordinates the complete review lifecycle |
+| `issue-creator` | Haiku | Creates structured Linear issues from findings |
+| `coderabbit-auto-fixer` | Opus | Applies fixes safely with verification |
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/myagent.git
-cd myagent
+## 📖 Commands
 
-# Install for Claude Code CLI
-make install
-
-# Or use npm
-npm install -g @yourusername/myagent
-```
-
-### Manual Installation
-
-#### For Claude Code CLI
+### CLI Commands
 
 ```bash
-# Copy agents to your project
-cp -r agents/ ~/.claude/agents/
-
-# Or install globally
-./install.sh --global
+goodflows install          # Install agents locally
+goodflows install -g       # Install agents globally
+goodflows install -c cursor # Install for Cursor
+goodflows uninstall        # Remove agents
+goodflows init             # Initialize configuration
+goodflows list             # List available agents
+goodflows help             # Show help
+goodflows version          # Show version
 ```
 
-#### For Cursor
-
-```bash
-# Copy to Cursor's agent directory
-cp -r agents/ ~/.cursor/agents/
-```
-
-#### For Continue.dev
-
-```bash
-# Add to Continue config
-./install.sh --continue
-```
-
-## 🚀 Quick Start
-
-### 1. Set Up Environment Variables
-
-```bash
-# Required
-export LINEAR_API_KEY="lin_api_xxxxx"
-export ANTHROPIC_API_KEY="sk-ant-xxxxx"
-
-# Optional
-export CODERABBIT_API_KEY="cr_xxxxx"
-```
-
-### 2. Run Your First Review
-
-```bash
-# In Claude Code CLI
-> review and track my changes
-
-# Or trigger specific agents
-> /fix-linear GOO-31
-```
-
-## 📖 Usage
-
-### Full Review Workflow
-
-```
-You: review and track all changes
-```
-
-This will:
-1. ✅ Check prerequisites (CodeRabbit, Linear API, Git)
-2. 🔍 Run CodeRabbit review on uncommitted changes
-3. 📊 Categorize findings by severity (P1-P4)
-4. 📝 Create Linear issues with proper labels
-5. 🔧 Optionally auto-fix safe issues
-6. 📋 Generate summary report
-
-### Create Issues Only
-
-```
-You: create Linear issues from these findings
-```
-
-### Fix a Specific Issue
-
-```
-You: /fix-linear GOO-31
-```
-
-### Review Options
+### In-Editor Commands
 
 | Command | Description |
 |---------|-------------|
-| `review and track` | Full workflow |
+| `review and track` | Full review workflow |
 | `review my changes` | Review uncommitted changes |
-| `run coderabbit and create issues` | Review + issue creation |
-| `fix the issue in GOO-XX` | Fix specific Linear issue |
+| `create Linear issues` | Create issues from findings |
+| `/fix-linear GOO-31` | Fix specific Linear issue |
+| `auto-fix this issue` | Apply automated fix |
 
 ## 🔧 Configuration
+
+### Initialize Config
+
+```bash
+goodflows init
+```
+
+This creates `goodflows.config.json`:
+
+```json
+{
+  "team": {
+    "name": "YOUR_TEAM",
+    "prefix": "GOO"
+  },
+  "review": {
+    "autoFix": false,
+    "groupByFile": true,
+    "priorityThreshold": 4
+  },
+  "memory": {
+    "enabled": true,
+    "path": ".serena/memories"
+  }
+}
+```
 
 ### Environment Variables
 
@@ -147,100 +171,16 @@ You: /fix-linear GOO-31
 | `LINEAR_API_KEY` | Yes | Linear API token |
 | `ANTHROPIC_API_KEY` | Yes | Claude API key |
 | `CODERABBIT_API_KEY` | No | CodeRabbit API key |
-| `REVIEW_AUTO_FIX` | No | Enable auto-fix (`true`/`false`) |
-| `REVIEW_PRIORITY_THRESHOLD` | No | Min priority to create issues (1-4) |
 
-### Agent Configuration
+## 🔌 Supported CLIs
 
-Edit `config.json` to customize behavior:
-
-```json
-{
-  "team": "YOUR_TEAM",
-  "labels": {
-    "security": "security",
-    "bug": "bug",
-    "improvement": "improvement"
-  },
-  "options": {
-    "group_by_file": true,
-    "check_duplicates": true,
-    "auto_fix": false
-  }
-}
-```
-
-## 📁 Project Structure
-
-```
-myagent/
-├── README.md                 # This file
-├── CLAUDE.md                 # Claude Code documentation
-├── package.json              # npm package config
-├── install.sh                # Installation script
-├── Makefile                  # Make commands
-├── config.json               # Default configuration
-│
-├── agents/                   # Agent definitions
-│   ├── review-orchestrator.md
-│   ├── issue-creator.md
-│   └── coderabbit-auto-fixer.md
-│
-├── .claude/                  # Claude Code CLI config
-│   └── settings.json
-│
-└── templates/                # Config templates for other CLIs
-    ├── cursor/
-    ├── continue/
-    └── aider/
-```
-
-## 🎯 Agents
-
-### review-orchestrator (Sonnet)
-
-The main coordinator that orchestrates the complete workflow:
-- Runs CodeRabbit reviews
-- Categorizes and prioritizes findings
-- Delegates to sub-agents
-- Generates reports
-
-### issue-creator (Haiku)
-
-Fast, efficient issue creation specialist:
-- Parses various input formats
-- Detects duplicates via memory
-- Creates well-structured Linear issues
-- Handles batch processing
-
-### coderabbit-auto-fixer (Opus)
-
-Careful, methodical code fixer:
-- Applies fixes safely with verification
-- Reverts on failure
-- Documents all changes
-- Updates Linear status
-
-## 🔌 Integrations
-
-### Linear
-
-- Automatic issue creation with proper labels
-- Priority mapping (P1-P4)
-- Status updates on fix completion
-- Duplicate detection
-
-### CodeRabbit
-
-- CLI integration for local reviews
-- Support for uncommitted, staged, PR, and branch reviews
-- Structured output parsing
-
-### Serena (MCP)
-
-- Semantic code analysis
-- Symbol-level editing
-- Memory persistence for patterns
+| CLI | Command | Status |
+|-----|---------|--------|
+| [Claude Code](https://claude.ai/code) | `goodflows install` | ✅ Full Support |
+| [Cursor](https://cursor.sh) | `goodflows install -c cursor` | ✅ Full Support |
+| [Continue.dev](https://continue.dev) | `goodflows install -c continue` | ✅ Full Support |
+| [Aider](https://aider.chat) | `goodflows install -c aider` | ✅ Full Support |
+| [Windsurf](https://codeium.com/windsurf) | `goodflows install -c windsurf` | ✅ Full Support |
 
 ## 📊 Priority Mapping
 
@@ -254,28 +194,52 @@ Careful, methodical code fixer:
 
 ## 🛡️ Error Handling
 
-The agents include comprehensive error handling:
+GoodFlows includes comprehensive error handling:
 
 - **Retryable errors**: Timeouts, rate limits → automatic retry with backoff
 - **Fallback actions**: API down → queue locally for later
-- **Abort conditions**: Missing dependencies → clear error messages
 - **Partial success**: Continue workflow even if some steps fail
+- **Rollback support**: Revert failed fixes automatically
 
-## 🧪 Testing
+## 📁 Project Structure
+
+```
+goodflows/
+├── package.json          # NPM package config
+├── bin/
+│   └── goodflows.js      # CLI entry point
+├── agents/
+│   ├── review-orchestrator.md
+│   ├── issue-creator.md
+│   └── coderabbit-auto-fixer.md
+├── scripts/
+│   ├── postinstall.js
+│   └── test.js
+├── config.json           # Default configuration
+├── CLAUDE.md             # Project documentation
+└── README.md
+```
+
+## 🧪 Development
 
 ```bash
-# Run tests
-make test
+# Clone repository
+git clone https://github.com/goodwiins/goodflows.git
+cd goodflows
 
-# Test specific agent
-make test-orchestrator
-make test-issue-creator
-make test-auto-fixer
+# Install dependencies
+npm install
+
+# Run tests
+npm test
+
+# Link for local development
+npm link
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) first.
+Contributions are welcome! Please read our contributing guidelines first.
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
@@ -297,9 +261,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - 📖 [Documentation](./CLAUDE.md)
-- 🐛 [Issue Tracker](https://github.com/yourusername/myagent/issues)
-- 💬 [Discussions](https://github.com/yourusername/myagent/discussions)
+- 🐛 [Issue Tracker](https://github.com/goodwiins/goodflows/issues)
+- 💬 [Discussions](https://github.com/goodwiins/goodflows/discussions)
 
 ---
 
-Made with ❤️ by the Myagent team
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/goodwiins">@goodwiins</a>
+</p>

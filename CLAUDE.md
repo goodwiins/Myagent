@@ -1,8 +1,8 @@
-# Myagent - Claude Agent Suite
+# GoodFlows - Claude Agent Suite
 
 ## Project Overview
 
-This is a multi-agent AI system for automated code review, issue tracking, and fix application. It integrates CodeRabbit reviews with Linear issue management and uses Claude models for intelligent automation.
+GoodFlows is a multi-agent AI system for automated code review, issue tracking, and fix application. It integrates CodeRabbit reviews with Linear issue management and uses Claude models for intelligent automation.
 
 ## Architecture
 
@@ -196,3 +196,11 @@ npm install -g @coderabbit/cli
 **Serena memory not found**
 - Initialize with `mcp__plugin_serena_serena__write_memory`
 - Check `.serena/memories/` directory exists
+
+## Package Information
+
+- **Name**: goodflows
+- **Version**: 1.0.0
+- **Author**: [@goodwiins](https://github.com/goodwiins)
+- **License**: MIT
+- **Repository**: https://github.com/goodwiins/goodflows
