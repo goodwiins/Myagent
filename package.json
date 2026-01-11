@@ -1,6 +1,6 @@
 {
   "name": "goodflows",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "AI-powered code review automation with CodeRabbit, Linear, and Claude. Multi-agent system for automated code review workflows.",
   "main": "bin/goodflows.js",
   "type": "module",

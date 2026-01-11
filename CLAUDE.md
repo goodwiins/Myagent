@@ -528,7 +528,7 @@ npm install -g @coderabbit/cli
 ## Package Information
 
 - **Name**: goodflows
-- **Version**: 1.1.4
+- **Version**: 1.1.5
 - **Author**: [@goodwiins](https://github.com/goodwiins)
 - **License**: MIT
 - **Repository**: https://github.com/goodwiins/goodflows
