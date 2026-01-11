@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "MCP Server configuration for GoodFlows with Claude Code",
+  "mcpServers": {
+    "goodflows": {
+      "command": "npx",
+      "args": ["goodflows-mcp-server"],
+      "env": {}
+    },
+    "linear": {
+      "command": "npx",
+      "args": ["@anthropic-ai/linear-mcp-server"],
+      "env": {
+        "LINEAR_API_KEY": "${LINEAR_API_KEY}"
+      }
+    },
+    "serena": {
+      "command": "npx",
+      "args": ["serena-mcp-server"],
+      "env": {}
+    }
+  }
+}

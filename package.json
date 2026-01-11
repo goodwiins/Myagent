@@ -1,11 +1,12 @@
 {
   "name": "goodflows",
-  "version": "1.1.5",
+  "version": "1.2.0",
   "description": "AI-powered code review automation with CodeRabbit, Linear, and Claude. Multi-agent system for automated code review workflows.",
   "main": "bin/goodflows.js",
   "type": "module",
   "bin": {
-    "goodflows": "./bin/goodflows.js"
+    "goodflows": "./bin/goodflows.js",
+    "goodflows-mcp-server": "./bin/mcp-server.js"
   },
   "scripts": {
     "start": "node bin/goodflows.js",
@@ -78,5 +79,16 @@
   "funding": {
     "type": "github",
     "url": "https://github.com/sponsors/goodwiins"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/claude-agent-sdk": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    }
   }
 }

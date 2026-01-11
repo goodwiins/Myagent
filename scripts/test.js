@@ -59,7 +59,7 @@ for (const file of agentFiles) {
   test(`  ${file} exists`, existsSync(agentPath) || existsSync(rootPath));
 }
 
-// Test MCP tool naming
+// Test MCP tool naming (updated for new naming convention)
 console.log('\nMCP Tool Configuration:');
 for (const file of agentFiles) {
   const agentPath = join(PACKAGE_ROOT, 'agents', file);
@@ -67,8 +67,10 @@ for (const file of agentFiles) {
   const path = existsSync(agentPath) ? agentPath : rootPath;
 
   if (existsSync(path)) {
-    testFileContains(path, 'mcp__plugin_serena_serena__', `  ${file}: Correct Serena tool naming`);
-    testFileContains(path, 'mcp__plugin_linear_linear__', `  ${file}: Correct Linear tool naming`);
+    // Check for new MCP naming convention (server_toolname)
+    testFileContains(path, 'serena_', `  ${file}: Has Serena MCP tools`);
+    testFileContains(path, 'linear_', `  ${file}: Has Linear MCP tools`);
+    testFileContains(path, 'goodflows_', `  ${file}: Has GoodFlows MCP tools`);
   }
 }
 

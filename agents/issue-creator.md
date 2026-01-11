@@ -4,12 +4,23 @@ description: Use this agent to create well-structured Linear issues from code re
 model: haiku
 color: blue
 tools:
-  - mcp__plugin_linear_linear__list_teams
-  - mcp__plugin_linear_linear__create_issue
-  - mcp__plugin_linear_linear__list_issue_labels
-  - mcp__plugin_linear_linear__get_issue
-  - mcp__plugin_serena_serena__read_memory
-  - mcp__plugin_serena_serena__write_memory
+  # GoodFlows MCP tools (deduplication, session)
+  - goodflows_context_query
+  - goodflows_context_add
+  - goodflows_context_check_duplicate
+  - goodflows_context_update
+  - goodflows_session_resume
+  - goodflows_session_get_context
+  - goodflows_session_set_context
+  # Linear MCP tools
+  - linear_list_teams
+  - linear_create_issue
+  - linear_list_issue_labels
+  - linear_get_issue
+  - linear_search_issues
+  # Serena MCP tools (memory) - optional
+  - serena_read_memory
+  - serena_write_memory
 triggers:
   - "create Linear issues from findings"
   - "track these in Linear"

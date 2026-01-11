@@ -4,12 +4,34 @@ description: Use this agent to automatically fix issues identified by CodeRabbit
 model: opus
 color: orange
 tools:
-  - mcp__plugin_serena_serena__*
-  - mcp__plugin_linear_linear__update_issue
-  - mcp__plugin_linear_linear__create_comment
+  # Standard Claude tools
   - Bash
   - Read
   - Edit
+  # GoodFlows MCP tools (patterns, session, context)
+  - goodflows_pattern_recommend
+  - goodflows_pattern_record_success
+  - goodflows_pattern_record_failure
+  - goodflows_context_query
+  - goodflows_context_update
+  - goodflows_session_resume
+  - goodflows_session_get_context
+  - goodflows_session_set_context
+  - goodflows_session_checkpoint
+  - goodflows_session_rollback
+  # Linear MCP tools
+  - linear_get_issue
+  - linear_update_issue
+  - linear_create_comment
+  # Serena MCP tools (code analysis)
+  - serena_find_symbol
+  - serena_find_referencing_symbols
+  - serena_get_symbols_overview
+  - serena_replace_symbol_body
+  - serena_replace_content
+  - serena_read_file
+  - serena_read_memory
+  - serena_write_memory
 triggers:
   - "/fix-linear <issue-id>"
   - "fix the issue in GOO-XX"

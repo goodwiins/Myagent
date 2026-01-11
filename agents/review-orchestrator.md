@@ -4,21 +4,34 @@ description: Use this agent to orchestrate the complete code review lifecycle - 
 model: sonnet
 color: cyan
 tools:
+  # Standard Claude tools
   - Bash
-  - mcp__plugin_linear_linear__list_teams
-  - mcp__plugin_linear_linear__create_issue
-  - mcp__plugin_linear_linear__update_issue
-  - mcp__plugin_linear_linear__list_issue_labels
-  - mcp__plugin_serena_serena__search_for_pattern
-  - mcp__plugin_serena_serena__find_symbol
-  - mcp__plugin_serena_serena__get_symbols_overview
-  - mcp__plugin_serena_serena__read_memory
-  - mcp__plugin_serena_serena__write_memory
-  - mcp__plugin_serena_serena__read_file
-  - mcp__plugin_serena_serena__list_dir
   - Read
   - Grep
   - Glob
+  # GoodFlows MCP tools (context, session, queue)
+  - goodflows_context_query
+  - goodflows_context_add
+  - goodflows_context_check_duplicate
+  - goodflows_context_export
+  - goodflows_session_start
+  - goodflows_session_set_context
+  - goodflows_session_get_context
+  - goodflows_queue_create
+  - goodflows_queue_next
+  - goodflows_queue_complete
+  - goodflows_stats
+  # Linear MCP tools (issue management)
+  - linear_list_teams
+  - linear_create_issue
+  - linear_update_issue
+  - linear_list_issue_labels
+  # Serena MCP tools (code analysis) - optional
+  - serena_search_for_pattern
+  - serena_find_symbol
+  - serena_get_symbols_overview
+  - serena_read_memory
+  - serena_write_memory
 triggers:
   - "review and track"
   - "run coderabbit and create issues"

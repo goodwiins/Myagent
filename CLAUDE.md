@@ -392,32 +392,78 @@ import {
 } from "goodflows/lib";
 ```
 
-## MCP Tool Reference
+## MCP Server Setup
 
-### Serena Tools (Primary)
+GoodFlows requires MCP servers to be configured in Claude Code settings.
 
-```
-mcp__plugin_serena_serena__find_symbol
-mcp__plugin_serena_serena__find_referencing_symbols
-mcp__plugin_serena_serena__get_symbols_overview
-mcp__plugin_serena_serena__replace_symbol_body
-mcp__plugin_serena_serena__replace_content
-mcp__plugin_serena_serena__read_file
-mcp__plugin_serena_serena__read_memory
-mcp__plugin_serena_serena__write_memory
-mcp__plugin_serena_serena__search_for_pattern
-mcp__plugin_serena_serena__list_dir
+### Quick Setup
+
+Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude/settings.local.json`):
+
+```json
+{
+  "mcpServers": {
+    "goodflows": {
+      "command": "npx",
+      "args": ["goodflows-mcp-server"]
+    },
+    "linear": {
+      "command": "npx",
+      "args": ["@anthropic-ai/linear-mcp-server"],
+      "env": {
+        "LINEAR_API_KEY": "your-linear-api-key"
+      }
+    }
+  }
+}
 ```
 
-### Linear Tools
+### GoodFlows MCP Tools
 
-```
-mcp__plugin_linear_linear__list_teams
-mcp__plugin_linear_linear__create_issue
-mcp__plugin_linear_linear__update_issue
-mcp__plugin_linear_linear__create_comment
-mcp__plugin_linear_linear__list_issue_labels
-```
+| Tool | Description |
+|------|-------------|
+| `goodflows_context_query` | Query findings by type, file, status |
+| `goodflows_context_add` | Add finding with deduplication |
+| `goodflows_context_check_duplicate` | Check for duplicate/similar findings |
+| `goodflows_context_update` | Update finding status, link to issue |
+| `goodflows_context_export` | Export to markdown |
+| `goodflows_session_start` | Start workflow session |
+| `goodflows_session_resume` | Resume existing session |
+| `goodflows_session_get_context` | Read from shared context |
+| `goodflows_session_set_context` | Write to shared context |
+| `goodflows_session_checkpoint` | Create rollback point |
+| `goodflows_session_rollback` | Rollback to checkpoint |
+| `goodflows_pattern_recommend` | Get fix pattern recommendations |
+| `goodflows_pattern_record_success` | Record successful fix |
+| `goodflows_pattern_record_failure` | Record failed fix |
+| `goodflows_queue_create` | Create priority queue |
+| `goodflows_queue_next` | Get next priority item |
+| `goodflows_stats` | Get store statistics |
+
+### Linear MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `linear_list_teams` | Get available teams |
+| `linear_create_issue` | Create a new issue |
+| `linear_update_issue` | Update issue status |
+| `linear_create_comment` | Add comment to issue |
+| `linear_list_issue_labels` | Get available labels |
+| `linear_get_issue` | Get issue details |
+| `linear_search_issues` | Search for issues |
+
+### Serena MCP Tools (Optional)
+
+| Tool | Description |
+|------|-------------|
+| `serena_find_symbol` | Find symbol definition |
+| `serena_find_referencing_symbols` | Find symbol references |
+| `serena_get_symbols_overview` | Get file symbol structure |
+| `serena_replace_symbol_body` | Replace symbol code |
+| `serena_replace_content` | Regex-based replacement |
+| `serena_read_file` | Read file content |
+| `serena_read_memory` | Read from Serena memory |
+| `serena_write_memory` | Write to Serena memory |
 
 ## Development Guidelines
 
@@ -430,8 +476,13 @@ description: When to use this agent...
 model: opus|sonnet|haiku
 color: orange|cyan|blue|green|purple
 tools:
-  - mcp__plugin_serena_serena__*
-  - mcp__plugin_linear_linear__*
+  # GoodFlows tools
+  - goodflows_context_query
+  - goodflows_session_start
+  # Linear tools
+  - linear_create_issue
+  # Serena tools (optional)
+  - serena_find_symbol
 triggers:
   - "trigger phrase one"
   - "trigger phrase two"
@@ -528,7 +579,7 @@ npm install -g @coderabbit/cli
 ## Package Information
 
 - **Name**: goodflows
-- **Version**: 1.1.5
+- **Version**: 1.2.0
 - **Author**: [@goodwiins](https://github.com/goodwiins)
 - **License**: MIT
 - **Repository**: https://github.com/goodwiins/goodflows
