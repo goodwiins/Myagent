@@ -136,6 +136,23 @@ function parseArgs(args) {
       case '--version':
         options.command = 'version';
         break;
+      // Context query filters
+      case '--type':
+      case '-t':
+        options.type = args[++i];
+        break;
+      case '--file':
+      case '-f':
+        options.file = args[++i];
+        break;
+      case '--status':
+      case '-s':
+        options.status = args[++i];
+        break;
+      case '--limit':
+      case '-n':
+        options.limit = parseInt(args[++i], 10) || 20;
+        break;
     }
   }
 
@@ -515,30 +532,51 @@ Next: Run ${colors.cyan}goodflows install${colors.reset} to install agents.
 
 // Context store management
 function contextCommand(options) {
-  const { subcommand } = options;
+  const { subcommand, type, file, status, limit } = options;
 
   const store = new ContextStore({ basePath: '.goodflows/context' });
 
   switch (subcommand) {
     case 'query': {
-      log.info('Querying context store...');
-      const results = store.query({ limit: 20 });
+      // Build filters from CLI options
+      const filters = {
+        type: type,
+        file: file,
+        status: status,
+        limit: limit || 20,
+      };
+
+      // Remove undefined values
+      Object.keys(filters).forEach(k => filters[k] === undefined && delete filters[k]);
+
+      const filterDesc = Object.entries(filters)
+        .filter(([k, v]) => k !== 'limit' && v)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ') || 'all';
+
+      log.info(`Querying context store (${filterDesc})...`);
+      const results = store.query(filters);
+
       if (results.length === 0) {
-        console.log('No findings in context store.');
+        console.log('No findings match the query.');
       } else {
         console.log(`\n${colors.bold}Findings (${results.length}):${colors.reset}\n`);
-        console.log('| Hash | File | Type | Status |');
-        console.log('|------|------|------|--------|');
+        console.log('| Hash | File | Type | Status | Issue |');
+        console.log('|------|------|------|--------|-------|');
         for (const r of results) {
-          console.log(`| ${r._hash.slice(0, 8)} | ${r.file || '-'} | ${r.type || '-'} | ${r.status || 'open'} |`);
+          console.log(`| ${r._hash.slice(0, 8)} | ${r.file || '-'} | ${r.type || '-'} | ${r.status || 'open'} | ${r.issueId || '-'} |`);
         }
       }
       break;
     }
 
     case 'export': {
+      // Build filters for export
+      const filters = { type, file, status };
+      Object.keys(filters).forEach(k => filters[k] === undefined && delete filters[k]);
+
       log.info('Exporting to markdown...');
-      const markdown = store.exportToMarkdown();
+      const markdown = store.exportToMarkdown(filters);
       const outputPath = '.goodflows/export.md';
       writeFileSync(outputPath, markdown);
       log.success(`Exported to ${outputPath}`);

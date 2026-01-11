@@ -533,6 +533,43 @@ The enhanced context store provides indexed, deduplicated storage:
 | `patterns/history.jsonl` | Pattern usage history | JSONL |
 | `sessions/*.json` | Agent run sessions | JSON |
 
+### GoodFlows CLI Commands (MUST USE)
+
+**Before creating issues, query existing findings to avoid duplicates:**
+
+```bash
+# Query all open bugs
+goodflows context query --type bug --status open
+
+# Query findings for a specific file
+goodflows context query --file src/api/auth.js
+
+# Query security issues (critical)
+goodflows context query --type critical_security
+
+# Query with limit
+goodflows context query --type potential_issue --limit 50
+```
+
+**After workflow completion, export for reporting:**
+
+```bash
+# Export all findings to markdown
+goodflows context export
+
+# Export only bugs
+goodflows context export --type bug
+
+# View export
+cat .goodflows/export.md
+```
+
+**Use these commands in your workflow:**
+
+1. **Pre-Review Check**: `goodflows context query --status open` - See what's already tracked
+2. **Duplicate Detection**: Query by file before creating issues for that file
+3. **Final Report**: `goodflows context export` - Generate markdown summary
+
 ### Dual-Write Strategy
 
 **Always write to both stores for compatibility:**
