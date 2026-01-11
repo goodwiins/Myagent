@@ -154,7 +154,36 @@ Extract structured findings:
 
 ## Phase 2: Categorize & Prioritize
 
-For each finding, determine priority:
+Use the Priority Queue to ensure critical findings are processed first:
+
+```javascript
+import { createAgentRegistry, PRIORITY } from 'goodflows/lib';
+
+const registry = createAgentRegistry();
+
+// Create queue with findings (auto-sorted by priority)
+const queue = registry.createQueue(parsedFindings, {
+  throttleMs: 100,           // 100ms between API calls
+  priorityThreshold: PRIORITY.LOW,  // Include all priorities
+});
+
+// Queue automatically sorts:
+// 1. critical_security (P1 - Urgent)
+// 2. potential_issue (P2 - High)
+// 3. refactor_suggestion, performance (P3 - Normal)
+// 4. documentation (P4 - Low)
+
+console.log(registry.getQueueStats());
+// { pending: 10, byPriority: { urgent: 2, high: 3, normal: 4, low: 1 } }
+
+// Process in priority order
+while (!queue.isEmpty()) {
+  const finding = registry.nextFinding();  // Always gets highest priority
+  // finding.type === 'critical_security' first!
+}
+```
+
+### Priority Levels
 
 | Priority | Level | Criteria | Examples |
 |----------|-------|----------|----------|
@@ -184,6 +213,71 @@ Group related findings by:
 
 Delegate to the `issue-creator` agent for each finding or group:
 
+### Using the Agent Registry with Session Context
+
+Use the AgentRegistry with SessionContextManager for full context propagation:
+
+```javascript
+import { createAgentRegistry } from 'goodflows/lib';
+
+const registry = createAgentRegistry();
+
+// Start a session - creates shared context that persists across agents
+const sessionId = registry.startSession({
+  trigger: 'code-review',
+  branch: 'feature-x',
+});
+
+// Sort findings by priority (critical first)
+const sortedFindings = registry.sortByPriority(findings);
+
+// Store findings in shared context (accessible by all agents)
+registry.setContext('findings.all', sortedFindings);
+registry.setContext('findings.critical', sortedFindings.filter(f => f.type === 'critical_security'));
+
+// Create checkpoint before risky operations
+const checkpoint = registry.checkpoint('before_issue_creation');
+
+// Create validated invocation request
+const invocation = registry.createInvocation('issue-creator', {
+  findings: sortedFindings,
+  team: 'GOO',
+  options: { groupByFile: true, checkDuplicates: true },
+  sessionId,
+});
+
+// After issue-creator completes, read what it wrote to context
+const createdIssues = registry.getContext('issues.created', []);
+
+// If something went wrong, rollback to checkpoint
+if (createdIssues.length === 0) {
+  registry.rollback(checkpoint);
+}
+
+// End session when workflow completes
+registry.endSession({ totalIssues: createdIssues.length });
+```
+
+### How Session Context Works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Session Context                          │
+│  ┌────────────────────────────────────────────────────────┐ │
+│  │ context: {                                              │ │
+│  │   findings: { all: [...], critical: [...] }            │ │
+│  │   issues: { created: ['GOO-31'], failed: [] }          │ │
+│  │   fixes: { applied: [], pending: [] }                  │ │
+│  │ }                                                       │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                         ↑ ↓                                 │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐      │
+│  │Orchestrator│ → │ issue-creator │ → │  auto-fixer  │      │
+│  │ (writes)   │   │ (reads/writes)│   │(reads/writes)│      │
+│  └──────────┘    └──────────────┘    └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ### Input to issue-creator
 
 ```json
@@ -193,7 +287,8 @@ Delegate to the `issue-creator` agent for each finding or group:
   "options": {
     "group_by_file": true,
     "check_duplicates": true
-  }
+  },
+  "sessionId": "session_xxx"
 }
 ```
 
@@ -205,7 +300,8 @@ Delegate to the `issue-creator` agent for each finding or group:
   "created": [
     {"id": "GOO-31", "title": "...", "priority": 1}
   ],
-  "duplicates_skipped": 0
+  "duplicates_skipped": 0,
+  "sessionId": "session_xxx"
 }
 ```
 
@@ -416,14 +512,88 @@ The orchestrator should continue even when individual steps fail:
 
 ## Memory Files
 
-All memory files stored in `.serena/memories/`:
+### Serena Memories (`.serena/memories/`)
 
 | File | Purpose | Updated By |
 |------|---------|------------|
-| `coderabbit_findings.md` | All findings history | orchestrator, issue-creator |
+| `coderabbit_findings.md` | All findings history (markdown) | orchestrator, issue-creator |
 | `auto_fix_patterns.md` | Reusable fix templates | auto-fixer |
 | `agent_runs.md` | Execution history | orchestrator |
 | `issue_queue.md` | Queued issues (API failures) | issue-creator |
+
+### GoodFlows Context Store (`.goodflows/context/`)
+
+The enhanced context store provides indexed, deduplicated storage:
+
+| Path | Purpose | Format |
+|------|---------|--------|
+| `index.json` | Fast hash-based lookups | JSON |
+| `findings/*.jsonl` | Partitioned findings by month | JSONL |
+| `patterns/patterns.json` | Fix patterns with confidence scores | JSON |
+| `patterns/history.jsonl` | Pattern usage history | JSONL |
+| `sessions/*.json` | Agent run sessions | JSON |
+
+### Dual-Write Strategy
+
+**Always write to both stores for compatibility:**
+
+1. **Serena Memory** (for MCP tool compatibility):
+   ```
+   mcp__plugin_serena_serena__write_memory → coderabbit_findings.md
+   ```
+
+2. **GoodFlows Context** (for indexing/dedup):
+   ```bash
+   # After writing to Serena, sync to context store
+   goodflows migrate
+   ```
+
+   Or the ContextStore is updated automatically if agents import it directly.
+
+### Using ContextStore for Deduplication
+
+Before creating issues, check the context store for duplicates:
+
+```javascript
+// Pseudocode for duplicate check
+import { ContextStore } from 'goodflows/lib/index.js';
+const store = new ContextStore({ basePath: '.goodflows/context' });
+
+for (const finding of findings) {
+  if (store.exists(finding)) {
+    // Skip - already tracked
+    duplicatesSkipped++;
+    continue;
+  }
+
+  // Add to context store with deduplication
+  const result = store.addFinding({
+    file: finding.file,
+    type: finding.type,
+    lines: finding.lines,
+    description: finding.description,
+    status: 'open'
+  });
+
+  // result.hash can be used to link to Linear issue later
+}
+```
+
+### Session Tracking
+
+Start a session at the beginning of each workflow run:
+
+```javascript
+const sessionId = store.startSession('review-orchestrator');
+
+// ... do work ...
+
+store.endSession(sessionId, 'completed', {
+  findingsCount: 10,
+  issuesCreated: 8,
+  duplicatesSkipped: 2
+});
+```
 
 ## Configuration
 
@@ -454,3 +624,292 @@ REVIEW_PRIORITY_THRESHOLD=2  # Only create P1/P2 issues
 ```
 
 Be thorough but efficient. Prioritize security and correctness issues over style suggestions.
+
+## Continuous Review Loop
+
+The orchestrator can run in a continuous loop mode for automated review cycles.
+
+### Review Loop Architecture
+
+```mermaid
+flowchart TD
+    A[Start Loop] --> B[Check for Changes]
+    B --> C{Changes Detected?}
+    C -->|Yes| D[Run Review Cycle]
+    C -->|No| E[Wait Interval]
+    D --> F[Phase 1: CodeRabbit Review]
+    F --> G[Phase 2: Deduplicate]
+    G --> H[Phase 3: Create Issues]
+    H --> I{Auto-fix Enabled?}
+    I -->|Yes| J[Phase 4: Fix Loop]
+    I -->|No| K[Phase 5: Report]
+    J --> K
+    K --> L[Update Memory]
+    L --> M{Continue Loop?}
+    E --> M
+    M -->|Yes| B
+    M -->|No| N[Exit with Summary]
+```
+
+### Loop Modes
+
+| Mode | Trigger | Use Case |
+|------|---------|----------|
+| `single` | Manual | One-time review |
+| `watch` | File changes | Development workflow |
+| `interval` | Time-based | CI/CD integration |
+| `pr` | PR events | GitHub Actions |
+
+### Loop Configuration
+
+```javascript
+const LOOP_CONFIG = {
+  mode: 'watch',              // single | watch | interval | pr
+  intervalMs: 300000,         // 5 minutes for interval mode
+  watchPatterns: ['**/*.py', '**/*.ts', '**/*.js'],
+  maxIterations: 10,          // Safety limit
+  autoFix: false,             // Enable Phase 4
+  exitOnEmpty: true,          // Stop if no new findings
+  deduplication: {
+    checkContext: true,       // Use GoodFlows context store
+    checkLinear: true,        // Check existing Linear issues
+    similarityThreshold: 0.85
+  }
+};
+```
+
+### Watch Mode Implementation
+
+```javascript
+import { watch } from 'fs';
+
+async function watchLoop(config) {
+  const state = {
+    iteration: 0,
+    totalFindings: 0,
+    issuesCreated: [],
+    issuesFixed: []
+  };
+
+  console.log('[Loop] Starting watch mode...');
+
+  // Watch for file changes
+  const watcher = watch('.', { recursive: true }, async (event, filename) => {
+    if (!matchesPattern(filename, config.watchPatterns)) return;
+    if (state.iteration >= config.maxIterations) {
+      console.log('[Loop] Max iterations reached, stopping.');
+      watcher.close();
+      return;
+    }
+
+    console.log(`\n[Loop ${++state.iteration}] Change detected: ${filename}`);
+
+    // Run review cycle
+    const result = await runReviewCycle(config);
+
+    // Accumulate results
+    state.totalFindings += result.findings.length;
+    state.issuesCreated.push(...result.issuesCreated);
+    state.issuesFixed.push(...result.issuesFixed);
+
+    // Check exit condition
+    if (config.exitOnEmpty && result.newFindings === 0) {
+      console.log('[Loop] No new findings, continuing to watch...');
+    }
+  });
+
+  // Return control handle
+  return {
+    stop: () => watcher.close(),
+    getState: () => state
+  };
+}
+```
+
+### Interval Mode Implementation
+
+```javascript
+async function intervalLoop(config) {
+  const state = {
+    iteration: 0,
+    startTime: Date.now(),
+    results: []
+  };
+
+  console.log(`[Loop] Starting interval mode (${config.intervalMs}ms)...`);
+
+  while (state.iteration < config.maxIterations) {
+    state.iteration++;
+    console.log(`\n[Loop ${state.iteration}/${config.maxIterations}]`);
+
+    // Check for uncommitted changes
+    const hasChanges = await checkGitChanges();
+    if (!hasChanges && config.exitOnEmpty) {
+      console.log('[Loop] No changes, waiting...');
+      await sleep(config.intervalMs);
+      continue;
+    }
+
+    // Run full review cycle
+    const cycleStart = Date.now();
+    const result = await runReviewCycle(config);
+
+    state.results.push({
+      iteration: state.iteration,
+      duration: Date.now() - cycleStart,
+      ...result
+    });
+
+    // Log cycle summary
+    console.log(`[Loop] Cycle complete: ${result.newFindings} new, ${result.issuesCreated.length} created, ${result.issuesFixed.length} fixed`);
+
+    // Wait for next interval
+    await sleep(config.intervalMs);
+  }
+
+  return generateLoopSummary(state);
+}
+```
+
+### Review Cycle Function
+
+```javascript
+async function runReviewCycle(config) {
+  const result = {
+    findings: [],
+    newFindings: 0,
+    duplicatesSkipped: 0,
+    issuesCreated: [],
+    issuesFixed: [],
+    errors: []
+  };
+
+  try {
+    // Phase 1: Run CodeRabbit
+    console.log('[Cycle] Phase 1: Running CodeRabbit review...');
+    const review = await runCodeRabbit(config.reviewType || 'uncommitted');
+    result.findings = review.findings;
+
+    // Phase 2: Deduplicate using ContextStore
+    console.log('[Cycle] Phase 2: Checking for duplicates...');
+    const store = new ContextStore({ basePath: '.goodflows/context' });
+
+    for (const finding of result.findings) {
+      if (store.exists(finding)) {
+        result.duplicatesSkipped++;
+        continue;
+      }
+
+      // Check similarity
+      const similar = store.findSimilar(finding.description, {
+        threshold: config.deduplication.similarityThreshold
+      });
+
+      if (similar.length > 0) {
+        result.duplicatesSkipped++;
+        continue;
+      }
+
+      result.newFindings++;
+    }
+
+    // Phase 3: Create issues (only for new findings)
+    if (result.newFindings > 0) {
+      console.log(`[Cycle] Phase 3: Creating ${result.newFindings} issues...`);
+      const issueResult = await createIssues(
+        result.findings.filter(f => !store.exists(f)),
+        config.team
+      );
+      result.issuesCreated = issueResult.created;
+    }
+
+    // Phase 4: Auto-fix (optional)
+    if (config.autoFix && result.issuesCreated.length > 0) {
+      console.log('[Cycle] Phase 4: Running auto-fix loop...');
+      const fixResult = await runFixLoop(result.issuesCreated, config);
+      result.issuesFixed = fixResult.fixed;
+    }
+
+    // Phase 5: Update memory
+    console.log('[Cycle] Phase 5: Updating memory...');
+    await updateMemory(result);
+
+  } catch (error) {
+    result.errors.push(error.message);
+  }
+
+  return result;
+}
+```
+
+### Loop Control Commands
+
+During a running loop, the orchestrator responds to control signals:
+
+| Command | Effect |
+|---------|--------|
+| `pause` | Pause loop, retain state |
+| `resume` | Resume paused loop |
+| `stop` | Stop loop, generate report |
+| `status` | Show current iteration and stats |
+| `force` | Force immediate review cycle |
+
+### Loop State Persistence
+
+The loop state is persisted for recovery:
+
+```javascript
+// Save state periodically
+function persistLoopState(state) {
+  const sessionFile = `.goodflows/context/sessions/loop_${state.sessionId}.json`;
+  writeFileSync(sessionFile, JSON.stringify({
+    ...state,
+    lastUpdate: new Date().toISOString()
+  }, null, 2));
+}
+
+// Recover from crash
+function recoverLoopState(sessionId) {
+  const sessionFile = `.goodflows/context/sessions/loop_${sessionId}.json`;
+  if (existsSync(sessionFile)) {
+    return JSON.parse(readFileSync(sessionFile, 'utf-8'));
+  }
+  return null;
+}
+```
+
+### Loop Output Format
+
+```json
+{
+  "agent": "review-orchestrator",
+  "mode": "watch",
+  "status": "completed",
+  "loop": {
+    "iterations": 5,
+    "duration": "2h 15m",
+    "totalFindings": 23,
+    "newFindings": 18,
+    "duplicatesSkipped": 5
+  },
+  "issues": {
+    "created": ["GOO-31", "GOO-32", "GOO-33"],
+    "fixed": ["GOO-31"],
+    "pending": ["GOO-32", "GOO-33"]
+  },
+  "byIteration": [
+    { "iteration": 1, "findings": 8, "created": 2, "fixed": 1 },
+    { "iteration": 2, "findings": 5, "created": 1, "fixed": 0 }
+  ]
+}
+```
+
+### Triggers for Loop Mode
+
+```
+"start review loop"
+"watch and review changes"
+"continuous review mode"
+"run review every 5 minutes"
+"review loop until no issues"
+```

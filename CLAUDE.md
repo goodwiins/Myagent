@@ -15,6 +15,10 @@ GoodFlows is a multi-agent AI system for automated code review, issue tracking, 
 │  │   Review    │  │  Categorize │  │   Create Issues     │  │
 │  └─────────────┘  └─────────────┘  └──────────┬──────────┘  │
 │                                                │             │
+├────────────────────────────────────────────────┼─────────────┤
+│                  Agent Registry                │             │
+│    (Schemas, Session Context, Invocations)     │             │
+├────────────────────────────────────────────────┼─────────────┤
 │                    ┌───────────────────────────┼─────────┐  │
 │                    ↓                           ↓         │  │
 │            ┌──────────────┐           ┌──────────────┐   │  │
@@ -54,15 +58,339 @@ GoodFlows is a multi-agent AI system for automated code review, issue tracking, 
 | Performance | `perf:` | `perf: Optimize database query` |
 | Documentation | `docs:` | `docs: Update API documentation` |
 
-### Memory File Paths
+### Memory & Context Storage
 
-All memory files are stored under `.serena/memories/`:
+GoodFlows uses a **hybrid storage strategy** for maximum compatibility:
+
+#### Serena Memory (Legacy - `.serena/memories/`)
 
 | File | Purpose |
 |------|---------|
 | `coderabbit_findings.md` | History of all review findings |
 | `auto_fix_patterns.md` | Reusable fix templates and patterns |
 | `agent_runs.md` | Execution history and metrics |
+
+#### GoodFlows Context Store (Enhanced - `.goodflows/context/`)
+
+| Path | Purpose | Format |
+|------|---------|--------|
+| `index.json` | Fast hash-based lookups | JSON |
+| `findings/*.jsonl` | Partitioned findings by month | JSONL |
+| `patterns/patterns.json` | Fix patterns with confidence scores | JSON |
+| `patterns/history.jsonl` | Pattern usage history | JSONL |
+| `sessions/*.json` | Agent run sessions | JSON |
+
+#### Key Features
+
+- **Content-hash deduplication** - SHA-256 based exact duplicate detection
+- **Trigram similarity search** - Fuzzy matching for near-duplicates
+- **Bloom filter** - Fast probabilistic duplicate check
+- **Pattern confidence scoring** - Bayesian-updated success rates
+- **Monthly partitioning** - Efficient storage for large histories
+
+#### CLI Commands
+
+```bash
+# Initialize context store
+goodflows init
+
+# View statistics
+goodflows stats
+
+# Migrate from Serena memory
+goodflows migrate
+
+# Query findings
+goodflows context --query "security"
+
+# Export to markdown
+goodflows context --export
+```
+
+## Agent Registry (Inter-Agent Communication)
+
+The Agent Registry provides programmatic invocation between agents with validated contracts.
+
+### Key Features
+
+- **Input/Output Schemas** - Validated contracts for each agent
+- **Session Context** - Propagate context through multi-agent workflows
+- **Priority Sorting** - Process critical findings first
+- **Invocation Tracking** - History of all agent calls
+- **Checkpoints** - Rollback support for recovery
+
+### Usage
+
+```javascript
+import { createAgentRegistry } from 'goodflows/lib';
+
+const registry = createAgentRegistry();
+
+// Start session with metadata
+const sessionId = registry.startSession({ trigger: 'code-review', branch: 'feature-x' });
+
+// Write to shared context
+registry.setContext('findings.all', findings);
+
+// Create checkpoint before risky operations
+const checkpoint = registry.checkpoint('before_issues');
+
+// Create validated invocation
+const invocation = registry.createInvocation('issue-creator', {
+  findings: registry.sortByPriority(findings),
+  team: 'GOO',
+  sessionId,
+});
+
+// Read from shared context (written by other agents)
+const createdIssues = registry.getContext('issues.created', []);
+
+// Rollback if needed
+if (error) registry.rollback(checkpoint);
+
+// End session
+registry.endSession({ totalIssues: createdIssues.length });
+```
+
+## Session Context Manager
+
+The Session Context Manager enables shared state across agent invocations.
+
+### How It Works
+
+```
+Without Session Context:
+  Orchestrator → issue-creator → auto-fixer
+       ↓              ↓              ↓
+  (has context)  (no context)   (no context)
+
+With Session Context:
+  Orchestrator → issue-creator → auto-fixer
+       ↓              ↓              ↓
+  (creates)      (reads/writes)  (reads/writes)
+       └──────── shared context ────────┘
+```
+
+### Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Session** | Workflow execution with unique ID, persists to disk |
+| **Context** | Shared state organized by namespace (findings, issues, fixes) |
+| **Checkpoints** | Snapshots for rollback if operations fail |
+| **Events** | Timeline of what happened for debugging |
+
+### Context Namespaces
+
+| Path | Written By | Read By |
+|------|------------|---------|
+| `findings.all` | orchestrator | issue-creator, auto-fixer |
+| `findings.critical` | orchestrator | issue-creator |
+| `issues.created` | issue-creator | orchestrator, auto-fixer |
+| `issues.details` | issue-creator | auto-fixer |
+| `fixes.applied` | auto-fixer | orchestrator |
+| `fixes.failed` | auto-fixer | orchestrator |
+
+### Session Lifecycle
+
+```javascript
+import { SessionContextManager } from 'goodflows/lib';
+
+// 1. Create session (orchestrator)
+const session = new SessionContextManager();
+const sessionId = session.start({ trigger: 'code-review' });
+
+// 2. Resume session (other agents)
+const session = SessionContextManager.resume(sessionId);
+
+// 3. Read/Write context
+session.set('findings.critical', criticalFindings);
+const findings = session.get('findings.all', []);
+
+// 4. Checkpoints & rollback
+const chk = session.checkpoint('before_fixes');
+// ... if something fails ...
+session.rollback(chk);
+
+// 5. Track events
+session.addEvent('issues_created', { count: 5 });
+
+// 6. Complete session
+session.complete({ totalIssues: 5, fixesApplied: 3 });
+```
+
+### Available Schemas
+
+| Agent | Input | Output |
+|-------|-------|--------|
+| `review-orchestrator` | reviewType, autoFix, priorityThreshold | summary, issues, errors |
+| `issue-creator` | findings[], team, options | created[], duplicatesSkipped |
+| `coderabbit-auto-fixer` | issues[], options | fixed[], failed[] |
+
+### Shared Constants
+
+```javascript
+PRIORITY_LEVELS = { critical_security: 1, potential_issue: 2, ... }
+LABEL_MAPPING = { critical_security: ['security', 'critical'], ... }
+TITLE_PREFIXES = { critical_security: '[SECURITY]', potential_issue: 'fix:', ... }
+```
+
+## Priority Queue
+
+Ensures critical security issues are always processed before lower-priority items.
+
+### How It Works
+
+```
+Without Priority Queue:
+  [doc, bug, SECURITY, perf, bug] → processed in discovery order
+                  ↓
+  SECURITY issue processed 3rd (too late!)
+
+With Priority Queue:
+  [doc, bug, SECURITY, perf, bug]
+                  ↓ auto-sorted
+  [SECURITY, bug, bug, perf, doc] → critical first!
+```
+
+### Usage
+
+```javascript
+import { createAgentRegistry, PRIORITY } from 'goodflows/lib';
+
+const registry = createAgentRegistry();
+
+// Create queue (auto-sorts by priority)
+registry.createQueue(findings, {
+  throttleMs: 100,                    // Rate limiting
+  priorityThreshold: PRIORITY.HIGH,  // Only P1 and P2
+});
+
+// Process in priority order
+while (!registry.getQueue().isEmpty()) {
+  const finding = registry.nextFinding();
+  try {
+    await createIssue(finding);
+    registry.completeFinding({ issueId: 'GOO-31' });
+  } catch (error) {
+    registry.failFinding(error);  // Auto-retry up to 3x
+  }
+}
+
+// Or process all at once with handler
+await registry.processQueue(async (finding) => {
+  return await createIssue(finding);
+});
+```
+
+### Priority Mapping
+
+| Finding Type | Priority | Level |
+|--------------|----------|-------|
+| `critical_security` | P1 | Urgent |
+| `potential_issue` | P2 | High |
+| `refactor_suggestion` | P3 | Normal |
+| `performance` | P3 | Normal |
+| `documentation` | P4 | Low |
+
+### Queue Features
+
+| Feature | Description |
+|---------|-------------|
+| **Auto-sorting** | Items sorted by priority on enqueue |
+| **Throttling** | Rate limiting between API calls |
+| **Retry** | Failed items auto-retry up to 3x |
+| **Filtering** | Skip items below priority threshold |
+| **Stats** | Track pending, completed, failed counts |
+
+## Claude Agent SDK Integration
+
+GoodFlows can be used with the [Claude Agent SDK](https://platform.claude.com/docs/en/agent-sdk/overview) for production deployments.
+
+### Quick Start
+
+```javascript
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { createGoodFlowsConfig } from "goodflows/lib";
+
+const config = createGoodFlowsConfig();
+
+for await (const message of query({
+  prompt: "Run full code review and create Linear issues",
+  options: {
+    allowedTools: ["Read", "Glob", "Grep", "Bash", "Edit", "Task"],
+    agents: config.agents,
+    hooks: config.hooks,
+    mcpServers: config.mcpServers,
+  }
+})) {
+  console.log(message);
+}
+```
+
+### Even Simpler
+
+```javascript
+import { runGoodFlows } from "goodflows/lib";
+
+const result = await runGoodFlows("Run full code review");
+console.log(result.summary);
+```
+
+### SDK Integration Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   Claude Agent SDK                          │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │                    query()                              ││
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   ││
+│  │  │  orchestrator │ │ issue-creator│ │  auto-fixer  │   ││
+│  │  │   (Sonnet)    │ │   (Haiku)    │ │   (Opus)     │   ││
+│  │  └──────────────┘ └──────────────┘ └──────────────┘   ││
+│  └────────────────────────────────────────────────────────┘│
+│                            ↓                                │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │                     SDK Hooks                           ││
+│  │  PreToolUse → Priority sorting, Deduplication          ││
+│  │  PostToolUse → Pattern tracking, Context sync          ││
+│  └────────────────────────────────────────────────────────┘│
+│                            ↓                                │
+│  ┌────────────────────────────────────────────────────────┐│
+│  │                   MCP Servers                           ││
+│  │  linear-mcp-server    serena-mcp-server                ││
+│  └────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│                  GoodFlows Extensions                        │
+│  PriorityQueue │ ContextStore │ PatternTracker │ Deduplication │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### What SDK Provides vs GoodFlows Adds
+
+| Feature | SDK Built-in | GoodFlows Adds |
+|---------|-------------|----------------|
+| Agent execution | ✓ query(), tool loop | - |
+| Subagents | ✓ AgentDefinition | Model selection per agent |
+| Sessions | ✓ resume, fork | Checkpoints, rollback |
+| Hooks | ✓ Pre/Post tool use | Priority queue, dedup |
+| MCP | ✓ Native support | Linear/Serena config |
+| Priority ordering | - | ✓ Critical first |
+| Deduplication | - | ✓ Trigram similarity |
+| Pattern tracking | - | ✓ Fix confidence |
+
+### Available Exports
+
+```javascript
+import {
+  GOODFLOWS_AGENTS,       // Agent definitions for SDK
+  createGoodFlowsHooks,   // Hooks with GoodFlows features
+  createGoodFlowsConfig,  // Complete SDK configuration
+  runGoodFlows,           // One-liner execution
+} from "goodflows/lib";
+```
 
 ## MCP Tool Reference
 
@@ -200,7 +528,7 @@ npm install -g @coderabbit/cli
 ## Package Information
 
 - **Name**: goodflows
-- **Version**: 1.0.0
+- **Version**: 1.1.4
 - **Author**: [@goodwiins](https://github.com/goodwiins)
 - **License**: MIT
 - **Repository**: https://github.com/goodwiins/goodflows

@@ -40,6 +40,61 @@ flowchart TD
     G --> H
 ```
 
+## Receiving Invocations via Agent Registry
+
+When called by the orchestrator, you'll receive a validated invocation with shared context:
+
+```javascript
+import { createAgentRegistry } from 'goodflows/lib';
+
+// Resume the session to access shared context
+const registry = createAgentRegistry();
+const session = registry.resumeSession(invocation.input.sessionId);
+
+// Read from shared context (written by issue-creator)
+const issuesToFix = registry.getContext('issues.created', invocation.input.issues);
+const issueDetails = registry.getContext('issues.details', []);
+
+// Create checkpoint before applying fixes
+const checkpoint = registry.checkpoint('before_fixes');
+
+const fixed = [];
+const failed = [];
+
+for (const issueId of issuesToFix) {
+  try {
+    // Apply fix...
+    fixed.push({ issueId, file: 'config.py', patternUsed: 'env-var-secret', verified: true });
+
+    // Update context with progress
+    registry.setContext('fixes.applied', fixed);
+    session.addEvent('fix_applied', { issueId });
+
+  } catch (error) {
+    failed.push({ issueId, reason: error.message });
+    session.recordError(error, { issueId });
+
+    // Rollback if revertOnFailure is true
+    if (invocation.input.options?.revertOnFailure) {
+      registry.rollback(checkpoint);
+    }
+  }
+}
+
+// Write final results to context
+registry.setContext('fixes.completed', fixed.map(f => f.issueId));
+registry.setContext('fixes.failed', failed.map(f => f.issueId));
+
+// Return result
+return {
+  agent: 'coderabbit-auto-fixer',
+  status: failed.length === 0 ? 'success' : 'partial',
+  fixed,
+  failed,
+  sessionId: invocation.input.sessionId,
+};
+```
+
 ## Your Responsibilities
 
 ### 1. Analyze the Fix
@@ -254,10 +309,102 @@ Use these for precise, LSP-validated code changes:
 
 - Read `.serena/memories/auto_fix_patterns.md` for similar past fixes
 - Check if a template exists for this issue type
+- Query GoodFlows PatternTracker for high-confidence fix recommendations
 
 **After Fixing:**
 
 - If this is a new fix pattern, add it to `.serena/memories/auto_fix_patterns.md`
+- Record pattern success/failure in GoodFlows PatternTracker
+
+## GoodFlows Pattern Tracker Integration
+
+The PatternTracker provides intelligent fix recommendations based on historical success rates.
+
+### Getting Fix Recommendations
+
+```javascript
+import { PatternTracker } from 'goodflows/lib/index.js';
+const tracker = new PatternTracker({
+  basePath: '.goodflows/context/patterns',
+  includeBuiltins: true
+});
+
+// Get recommended patterns for the finding type
+const recommendations = tracker.recommend(finding.type, finding.description);
+
+// recommendations = [
+//   { id: 'env-var-secret', confidence: 0.95, successRate: 0.89 },
+//   { id: 'try-catch-async', confidence: 0.72, successRate: 0.85 }
+// ]
+
+// Only apply patterns with confidence > 0.7
+const safePatterns = recommendations.filter(p => p.confidence > 0.7);
+```
+
+### Builtin Patterns Available
+
+| Pattern ID | Type | Description | Confidence |
+|------------|------|-------------|------------|
+| `env-var-secret` | security | Replace hardcoded secrets with env vars | High |
+| `async-lock` | concurrency | Add thread-safe locking | Medium |
+| `null-check` | safety | Add null/undefined validation | High |
+| `try-catch-async` | error-handling | Wrap async code in try-catch | Medium |
+| `input-validation` | security | Validate user input | High |
+
+### Recording Fix Outcomes
+
+After applying a fix, record the result to improve future recommendations:
+
+```javascript
+// On successful fix
+tracker.recordSuccess('env-var-secret', {
+  file: finding.file,
+  issueId: 'GOO-31',
+  context: finding.description
+});
+
+// On failed fix
+tracker.recordFailure('null-check', {
+  file: finding.file,
+  issueId: 'GOO-32',
+  reason: 'Type mismatch after fix',
+  context: finding.description
+});
+```
+
+### Adding New Patterns
+
+When you discover a new reusable fix pattern:
+
+```javascript
+tracker.addPattern({
+  id: 'custom-pattern-name',
+  type: 'security',  // or: bug, refactor, performance, docs
+  description: 'Brief description of what this pattern fixes',
+  template: `
+    // Template code showing the fix pattern
+    const secret = process.env.API_KEY;
+  `,
+  applicability: {
+    fileTypes: ['.py', '.ts', '.js'],
+    keywords: ['api_key', 'secret', 'password']
+  }
+});
+```
+
+### Dual-Write Strategy
+
+**Always write to both stores:**
+
+1. **GoodFlows PatternTracker** (for confidence/analytics):
+   ```javascript
+   tracker.recordSuccess(patternId, { ... });
+   ```
+
+2. **Serena Memory** (for human-readable history):
+   ```
+   mcp__plugin_serena_serena__write_memory → auto_fix_patterns.md
+   ```
 
 ## Fix Application Rules
 
@@ -418,3 +565,176 @@ When called by `review-orchestrator`:
 ```
 
 Be careful and methodical. A broken fix is worse than no fix.
+
+## Fix Retry Loop
+
+When a fix attempt fails, the agent should iterate through alternative approaches before giving up.
+
+### Retry Loop Algorithm
+
+```mermaid
+flowchart TD
+    A[Start Fix Attempt] --> B[Get Pattern Recommendations]
+    B --> C{Patterns Available?}
+    C -->|Yes| D[Sort by Confidence]
+    C -->|No| E[Use Default Fix]
+    D --> F[Try Pattern #1]
+    E --> F
+    F --> G{Verification Passed?}
+    G -->|Yes| H[Record Success]
+    G -->|No| I{More Patterns?}
+    I -->|Yes| J[increment attempt]
+    J --> K{Max Attempts?}
+    K -->|No| L[Try Next Pattern]
+    L --> G
+    K -->|Yes| M[Mark Manual Review]
+    I -->|No| M
+    H --> N[Update Linear: Done]
+    M --> O[Update Linear: Needs Review]
+```
+
+### Loop Configuration
+
+```javascript
+const LOOP_CONFIG = {
+  maxAttempts: 3,           // Maximum fix attempts per issue
+  patternThreshold: 0.5,    // Minimum confidence to try pattern
+  backoffMs: 1000,          // Delay between attempts
+  verifyAfterEach: true,    // Run verification after each attempt
+};
+```
+
+### Retry Loop Implementation
+
+```javascript
+async function fixWithRetry(issue, options = {}) {
+  const { maxAttempts = 3, tracker } = options;
+  const attempts = [];
+
+  // Get pattern recommendations sorted by confidence
+  const patterns = tracker.recommend(issue.type, issue.description)
+    .filter(p => p.confidence >= 0.5)
+    .slice(0, maxAttempts);
+
+  for (let i = 0; i < Math.min(maxAttempts, patterns.length || 1); i++) {
+    const pattern = patterns[i] || { id: 'default', confidence: 0.5 };
+
+    console.log(`[Attempt ${i + 1}/${maxAttempts}] Trying pattern: ${pattern.id}`);
+
+    const result = await applyFix(issue, pattern);
+    attempts.push({ pattern: pattern.id, ...result });
+
+    if (result.verified) {
+      // Success! Record and exit loop
+      tracker.recordSuccess(pattern.id, {
+        file: issue.file,
+        issueId: issue.id,
+        attempt: i + 1
+      });
+
+      return {
+        status: 'success',
+        pattern: pattern.id,
+        attempts: i + 1,
+        history: attempts
+      };
+    }
+
+    // Record failure and continue to next pattern
+    tracker.recordFailure(pattern.id, {
+      file: issue.file,
+      issueId: issue.id,
+      reason: result.error
+    });
+
+    // Revert failed fix before trying next
+    await revertChanges(issue.file);
+
+    // Brief delay before next attempt
+    await sleep(1000);
+  }
+
+  // All attempts failed
+  return {
+    status: 'failed',
+    attempts: attempts.length,
+    history: attempts,
+    needsManualReview: true
+  };
+}
+```
+
+### Adaptive Pattern Selection
+
+The loop learns from failures to avoid repeating unsuccessful patterns:
+
+```javascript
+function selectNextPattern(patterns, failedPatterns) {
+  // Filter out patterns that already failed in this session
+  const available = patterns.filter(p => !failedPatterns.includes(p.id));
+
+  if (available.length === 0) {
+    return null; // No more patterns to try
+  }
+
+  // Select highest confidence remaining pattern
+  return available.sort((a, b) => b.confidence - a.confidence)[0];
+}
+```
+
+### Issue Queue Loop
+
+For processing multiple issues, use a queue-based loop:
+
+```javascript
+async function processIssueQueue(issues, options = {}) {
+  const results = {
+    fixed: [],
+    failed: [],
+    skipped: []
+  };
+
+  // Sort by priority (P1 first)
+  const queue = [...issues].sort((a, b) => a.priority - b.priority);
+
+  for (const issue of queue) {
+    console.log(`\n[Queue] Processing ${issue.id} (P${issue.priority})`);
+
+    // Skip if dependencies not resolved
+    if (issue.blockedBy?.some(dep => !results.fixed.includes(dep))) {
+      results.skipped.push({ id: issue.id, reason: 'blocked' });
+      continue;
+    }
+
+    const result = await fixWithRetry(issue, options);
+
+    if (result.status === 'success') {
+      results.fixed.push(issue.id);
+    } else {
+      results.failed.push({ id: issue.id, attempts: result.attempts });
+    }
+  }
+
+  return results;
+}
+```
+
+### Loop Output Format
+
+```json
+{
+  "agent": "coderabbit-auto-fixer",
+  "status": "completed",
+  "loop": {
+    "totalIssues": 5,
+    "iterations": 12,
+    "fixed": ["GOO-31", "GOO-33"],
+    "failed": ["GOO-32"],
+    "skipped": ["GOO-34", "GOO-35"]
+  },
+  "patterns": {
+    "tried": ["env-var-secret", "null-check", "try-catch-async"],
+    "successful": ["env-var-secret"],
+    "failed": ["null-check"]
+  }
+}

@@ -103,6 +103,8 @@ function parseArgs(args) {
       case 'context':
       case 'migrate':
       case 'stats':
+      case 'loop':
+      case 'watch':
         options.command = arg;
         break;
       case 'add':
@@ -170,6 +172,8 @@ ${colors.bold}COMMANDS:${colors.reset}
   context     Manage context storage (query, export, clear)
   migrate     Migrate from legacy markdown memories
   stats       Show context storage statistics
+  loop        Run continuous review loop (interval mode)
+  watch       Run file-watching review loop
   help        Show this help message
   version     Show version information
 
@@ -190,6 +194,8 @@ ${colors.bold}EXAMPLES:${colors.reset}
   ${colors.cyan}goodflows context export${colors.reset}             # Export to markdown
   ${colors.cyan}goodflows migrate${colors.reset}                    # Migrate legacy memories
   ${colors.cyan}goodflows stats${colors.reset}                      # Show storage statistics
+  ${colors.cyan}goodflows loop${colors.reset}                       # Start interval review loop
+  ${colors.cyan}goodflows watch${colors.reset}                      # Start file-watching loop
 
 ${colors.bold}SUPPORTED CLIs:${colors.reset}
   ${colors.green}•${colors.reset} Claude Code (claude)  - Default
@@ -701,6 +707,237 @@ ${colors.bold}Patterns:${colors.reset}
   }
 }
 
+// Loop/Watch mode for continuous review
+async function loopCommand(options) {
+  const mode = options.command === 'watch' ? 'watch' : 'interval';
+
+  showLogo();
+  log.info(`Starting ${mode} mode review loop...`);
+
+  if (!existsSync('.goodflows/context')) {
+    log.warning('Context store not initialized. Run: goodflows init');
+    return;
+  }
+
+  const store = new ContextStore({ basePath: '.goodflows/context' });
+  const tracker = new PatternTracker({ basePath: '.goodflows/context/patterns' });
+
+  const config = {
+    mode,
+    intervalMs: 60000,        // 1 minute default
+    maxIterations: 100,
+    autoFix: false,
+    sessionId: `loop_${Date.now()}`,
+  };
+
+  const state = {
+    iteration: 0,
+    startTime: Date.now(),
+    totalFindings: 0,
+    issuesCreated: [],
+    issuesFixed: [],
+    running: true,
+  };
+
+  // Save session
+  const saveState = () => {
+    const sessionFile = `.goodflows/context/sessions/${config.sessionId}.json`;
+    writeFileSync(sessionFile, JSON.stringify({
+      ...state,
+      config,
+      lastUpdate: new Date().toISOString(),
+    }, null, 2));
+  };
+
+  // Handle graceful shutdown
+  process.on('SIGINT', () => {
+    console.log(`\n${colors.yellow}[Loop] Received interrupt signal...${colors.reset}`);
+    state.running = false;
+    saveState();
+    showLoopSummary(state);
+    process.exit(0);
+  });
+
+  console.log(`
+${colors.bold}Loop Configuration:${colors.reset}
+  Mode:           ${colors.cyan}${mode}${colors.reset}
+  Interval:       ${config.intervalMs / 1000}s
+  Max Iterations: ${config.maxIterations}
+  Session ID:     ${config.sessionId}
+
+${colors.yellow}Press Ctrl+C to stop the loop${colors.reset}
+`);
+
+  if (mode === 'watch') {
+    // Watch mode - file system watching
+    log.info('Watching for file changes...');
+    const { watch: fsWatch } = await import('fs');
+
+    const watcher = fsWatch('.', { recursive: true }, async (_event, filename) => {
+      if (!filename || filename.startsWith('.') || filename.includes('node_modules')) return;
+      if (!state.running) return;
+
+      // Debounce rapid changes
+      const now = Date.now();
+      if (state.lastChange && now - state.lastChange < 2000) return;
+      state.lastChange = now;
+
+      state.iteration++;
+      console.log(`\n${colors.cyan}[Loop ${state.iteration}]${colors.reset} Change detected: ${filename}`);
+
+      await runCycle(state, store, tracker);
+      saveState();
+
+      if (state.iteration >= config.maxIterations) {
+        log.warning('Max iterations reached, stopping loop.');
+        state.running = false;
+        watcher.close();
+        showLoopSummary(state);
+      }
+    });
+
+    // Keep process alive
+    await new Promise(() => {});
+
+  } else {
+    // Interval mode
+    while (state.running && state.iteration < config.maxIterations) {
+      state.iteration++;
+      console.log(`\n${colors.cyan}[Loop ${state.iteration}/${config.maxIterations}]${colors.reset} Running review cycle...`);
+
+      await runCycle(state, store, tracker);
+      saveState();
+
+      if (state.running) {
+        console.log(`${colors.blue}[Loop]${colors.reset} Waiting ${config.intervalMs / 1000}s for next cycle...`);
+        await sleep(config.intervalMs);
+      }
+    }
+
+    showLoopSummary(state);
+  }
+}
+
+// Run a single review cycle (using spawnSync for safety)
+async function runCycle(state, store) {
+  const cycleStart = Date.now();
+  const { spawnSync } = await import('child_process');
+
+  try {
+    // Check git status for changes (using spawnSync - no shell injection)
+    let hasChanges = false;
+
+    const gitResult = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf-8' });
+    if (gitResult.status === 0) {
+      hasChanges = gitResult.stdout.trim().length > 0;
+    } else {
+      log.warning('Not a git repository or git not available');
+    }
+
+    if (!hasChanges) {
+      console.log(`${colors.blue}[Cycle]${colors.reset} No uncommitted changes detected.`);
+      return;
+    }
+
+    console.log(`${colors.blue}[Cycle]${colors.reset} Found uncommitted changes, checking for CodeRabbit...`);
+
+    // Check if coderabbit is available (using spawnSync)
+    const whichResult = spawnSync('which', ['coderabbit'], { encoding: 'utf-8' });
+    const coderabbitAvailable = whichResult.status === 0;
+
+    if (coderabbitAvailable) {
+      console.log(`${colors.blue}[Cycle]${colors.reset} Running CodeRabbit review...`);
+
+      const reviewResult = spawnSync('coderabbit', ['review', '--type', 'uncommitted', '--plain'], {
+        encoding: 'utf-8',
+        timeout: 120000,
+      });
+
+      if (reviewResult.status === 0) {
+        // Parse findings (simplified)
+        const findings = parseCodeRabbitOutput(reviewResult.stdout);
+        state.totalFindings += findings.length;
+
+        // Check for duplicates
+        let newFindings = 0;
+        for (const finding of findings) {
+          if (!store.exists(finding)) {
+            store.addFinding(finding);
+            newFindings++;
+          }
+        }
+
+        console.log(`${colors.green}[Cycle]${colors.reset} Found ${findings.length} findings (${newFindings} new)`);
+      } else {
+        log.warning(`CodeRabbit review failed: ${reviewResult.stderr}`);
+      }
+    } else {
+      console.log(`${colors.yellow}[Cycle]${colors.reset} CodeRabbit not installed. Skipping review.`);
+      console.log(`  Install with: ${colors.cyan}npm install -g @coderabbit/cli${colors.reset}`);
+    }
+
+    const duration = Date.now() - cycleStart;
+    console.log(`${colors.blue}[Cycle]${colors.reset} Completed in ${duration}ms`);
+
+  } catch (err) {
+    log.error(`Cycle error: ${err.message}`);
+  }
+}
+
+// Parse CodeRabbit output (simplified)
+function parseCodeRabbitOutput(output) {
+  const findings = [];
+
+  // Look for patterns like "file.py:123 - issue description"
+  const lines = output.split('\n');
+  for (const line of lines) {
+    const match = line.match(/([^\s:]+):(\d+)(?:-(\d+))?\s*[-:]\s*(.+)/);
+    if (match) {
+      findings.push({
+        file: match[1],
+        lines: match[3] ? `${match[2]}-${match[3]}` : match[2],
+        description: match[4],
+        type: inferFindingType(match[4]),
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  return findings;
+}
+
+// Infer finding type from description
+function inferFindingType(description) {
+  const lower = description.toLowerCase();
+  if (lower.includes('security') || lower.includes('api key') || lower.includes('secret')) return 'security';
+  if (lower.includes('bug') || lower.includes('error') || lower.includes('null')) return 'bug';
+  if (lower.includes('performance') || lower.includes('slow')) return 'performance';
+  if (lower.includes('refactor') || lower.includes('clean')) return 'refactor';
+  return 'unknown';
+}
+
+// Show loop summary
+function showLoopSummary(state) {
+  const duration = Date.now() - state.startTime;
+  const minutes = Math.floor(duration / 60000);
+  const seconds = Math.floor((duration % 60000) / 1000);
+
+  console.log(`
+${colors.bold}${colors.cyan}Loop Summary${colors.reset}
+
+  Iterations:      ${state.iteration}
+  Duration:        ${minutes}m ${seconds}s
+  Total Findings:  ${state.totalFindings}
+  Issues Created:  ${state.issuesCreated.length}
+  Issues Fixed:    ${state.issuesFixed.length}
+`);
+}
+
+// Sleep helper
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Main function
 function main() {
   const args = process.argv.slice(2);
@@ -727,6 +964,10 @@ function main() {
       break;
     case 'stats':
       stats();
+      break;
+    case 'loop':
+    case 'watch':
+      loopCommand(options);
       break;
     case 'version':
       showVersion();

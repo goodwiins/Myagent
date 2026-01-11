@@ -116,6 +116,52 @@ When multiple findings are related:
 
 After creating issues, return structured response for orchestrator integration.
 
+## Receiving Invocations via Agent Registry
+
+When called by the orchestrator, you'll receive a validated invocation with session context:
+
+```javascript
+import { createAgentRegistry, PRIORITY_LEVELS, LABEL_MAPPING, TITLE_PREFIXES } from 'goodflows/lib';
+
+// Resume the session started by orchestrator
+const registry = createAgentRegistry();
+const session = registry.resumeSession(invocation.input.sessionId);
+
+// Read findings from shared context (written by orchestrator)
+const findings = registry.getContext('findings.all', invocation.input.findings);
+const criticalFindings = registry.getContext('findings.critical', []);
+
+// Process findings...
+const createdIssues = [];
+
+for (const finding of findings) {
+  // Use registry helpers for consistent labeling
+  const labels = LABEL_MAPPING[finding.type];
+  const priority = PRIORITY_LEVELS[finding.type];
+  const titlePrefix = TITLE_PREFIXES[finding.type];
+
+  // Create issue in Linear...
+  const issue = { id: 'GOO-31', title: '...' };
+  createdIssues.push(issue);
+}
+
+// Write results to shared context (readable by orchestrator and auto-fixer)
+registry.setContext('issues.created', createdIssues.map(i => i.id));
+registry.setContext('issues.details', createdIssues);
+
+// Add event to timeline
+session.addEvent('issues_created', { count: createdIssues.length });
+
+// Return structured result
+return {
+  agent: 'issue-creator',
+  status: 'success',
+  created: createdIssues,
+  duplicatesSkipped: 0,
+  sessionId: invocation.input.sessionId,
+};
+```
+
 ## Tools You Use
 
 ### Linear Integration
@@ -125,12 +171,70 @@ After creating issues, return structured response for orchestrator integration.
 - `mcp__plugin_linear_linear__list_issue_labels` - Get available labels
 - `mcp__plugin_linear_linear__get_issue` - Verify creation / check duplicates
 
-### Serena Memory (Duplicate Detection)
+### Serena Memory (Legacy Compatibility)
 
 - `mcp__plugin_serena_serena__read_memory` - Read `.serena/memories/coderabbit_findings.md`
 - `mcp__plugin_serena_serena__write_memory` - Record new issues
 
 ## Duplicate Detection
+
+### GoodFlows Context Store (Preferred)
+
+The GoodFlows context store provides fast, hash-based deduplication:
+
+```javascript
+// Before creating issues, check the context store
+import { ContextStore } from 'goodflows/lib/index.js';
+const store = new ContextStore({ basePath: '.goodflows/context' });
+
+for (const finding of findings) {
+  // Fast bloom filter check first
+  if (store.exists(finding)) {
+    duplicatesSkipped++;
+    continue;  // Skip - already tracked
+  }
+
+  // Add to context store with content hash
+  const result = store.addFinding({
+    file: finding.file,
+    type: finding.type,
+    lines: finding.lines,
+    description: finding.description,
+    issueId: null,  // Will be updated after Linear creation
+    status: 'pending'
+  });
+
+  // result.hash links this finding to the Linear issue
+  findingsToCreate.push({ ...finding, contextHash: result.hash });
+}
+```
+
+### After Creating Linear Issue
+
+```javascript
+// Update context store with Linear issue ID
+store.updateFinding(contextHash, {
+  issueId: 'GOO-31',
+  status: 'open'
+});
+```
+
+### Similarity Detection
+
+For fuzzy duplicate detection (e.g., same issue with slightly different line numbers):
+
+```javascript
+import { findSimilar, trigramSimilarity } from 'goodflows/lib/index.js';
+
+// Check for similar findings (>85% match)
+const similar = store.findSimilar(finding.description, { threshold: 0.85 });
+if (similar.length > 0) {
+  // Found similar existing finding - link instead of create
+  return { action: 'link', existingIssue: similar[0].issueId };
+}
+```
+
+### Legacy Fallback (Serena Memory)
 
 Before creating a new issue, always:
 
@@ -142,6 +246,20 @@ Before creating a new issue, always:
 4. If new finding:
    - Create issue
    - Append to `.serena/memories/coderabbit_findings.md`
+
+### Dual-Write Strategy
+
+**Always write to both stores for compatibility:**
+
+1. **GoodFlows Context** (for fast dedup/indexing):
+   ```javascript
+   store.addFinding({ ... });
+   ```
+
+2. **Serena Memory** (for MCP tool compatibility):
+   ```
+   mcp__plugin_serena_serena__write_memory → coderabbit_findings.md
+   ```
 
 ### Memory Entry Format
 
