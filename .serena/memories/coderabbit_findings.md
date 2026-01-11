@@ -1,0 +1,2 @@
+# CodeRabbit Findings Log
+

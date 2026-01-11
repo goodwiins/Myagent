@@ -28,3 +28,10 @@ pnpm-lock.yaml
 # Test coverage
 coverage/
 .nyc_output/
+
+# Runtime context store (user-specific data)
+.goodflows/context/
+goodflows.config.json
+
+# Export files
+.goodflows/export.md

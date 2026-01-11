@@ -5,10 +5,12 @@
  * AI-powered code review automation with CodeRabbit, Linear, and Claude
  */
 
-import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
+import { ContextStore } from '../lib/context-store.js';
+import { PatternTracker } from '../lib/pattern-tracker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -86,6 +88,7 @@ function parseArgs(args) {
     cli: 'claude',
     global: false,
     verbose: false,
+    subcommand: null,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -97,7 +100,16 @@ function parseArgs(args) {
       case 'list':
       case 'help':
       case 'version':
+      case 'context':
+      case 'migrate':
+      case 'stats':
         options.command = arg;
+        break;
+      case 'add':
+      case 'query':
+      case 'export':
+      case 'clear':
+        options.subcommand = arg;
         break;
       case '--cli':
       case '-c':
@@ -155,6 +167,9 @@ ${colors.bold}COMMANDS:${colors.reset}
   uninstall   Remove installed agents
   init        Initialize configuration in current directory
   list        List available agents
+  context     Manage context storage (query, export, clear)
+  migrate     Migrate from legacy markdown memories
+  stats       Show context storage statistics
   help        Show this help message
   version     Show version information
 
@@ -171,6 +186,10 @@ ${colors.bold}EXAMPLES:${colors.reset}
   ${colors.cyan}goodflows install --cli continue -g${colors.reset}  # Install for Continue.dev (global)
   ${colors.cyan}goodflows uninstall${colors.reset}                  # Remove installation
   ${colors.cyan}goodflows init${colors.reset}                       # Initialize config
+  ${colors.cyan}goodflows context query --type bug${colors.reset}   # Query findings by type
+  ${colors.cyan}goodflows context export${colors.reset}             # Export to markdown
+  ${colors.cyan}goodflows migrate${colors.reset}                    # Migrate legacy memories
+  ${colors.cyan}goodflows stats${colors.reset}                      # Show storage statistics
 
 ${colors.bold}SUPPORTED CLIs:${colors.reset}
   ${colors.green}•${colors.reset} Claude Code (claude)  - Default
@@ -417,7 +436,8 @@ function uninstall(options) {
 }
 
 // Initialize configuration
-function init() {
+function init(options = {}) {
+  const { verbose } = options;
   showLogo();
   log.info('Initializing GoodFlows configuration...');
 
@@ -445,9 +465,25 @@ function init() {
       copyFileSync(claudeSource, 'CLAUDE.md');
     }
 
-    // Initialize memory files
+    // Initialize legacy memory files
     writeFileSync('.serena/memories/coderabbit_findings.md', '# CodeRabbit Findings Log\n\n');
     writeFileSync('.serena/memories/auto_fix_patterns.md', '# Auto-Fix Patterns\n\n');
+
+    // Initialize enhanced context store
+    ensureDir('.goodflows/context');
+    ensureDir('.goodflows/context/findings');
+    ensureDir('.goodflows/context/patterns');
+    ensureDir('.goodflows/context/sessions');
+
+    // Initialize context store (creates index)
+    const store = new ContextStore({ basePath: '.goodflows/context' });
+    const storeStats = store.getStats();
+    if (verbose) log.info(`Context store initialized (${storeStats.uniqueFindings} findings)`);
+
+    // Initialize pattern tracker
+    const tracker = new PatternTracker({ basePath: '.goodflows/context/patterns' });
+    const trackerStats = tracker.getStats();
+    if (verbose) log.info(`Pattern tracker initialized (${trackerStats.totalPatterns} patterns)`);
 
     log.success('Configuration initialized!');
     console.log(`
@@ -455,7 +491,8 @@ ${colors.bold}Created:${colors.reset}
   ${colors.green}•${colors.reset} goodflows.config.json (configuration file)
   ${colors.green}•${colors.reset} CLAUDE.md (project documentation)
   ${colors.green}•${colors.reset} .claude/agents/ (agent directory)
-  ${colors.green}•${colors.reset} .serena/memories/ (memory storage)
+  ${colors.green}•${colors.reset} .serena/memories/ (legacy memory storage)
+  ${colors.green}•${colors.reset} .goodflows/context/ (enhanced context store)
 
 Edit ${colors.cyan}goodflows.config.json${colors.reset} to customize behavior.
 
@@ -464,6 +501,203 @@ Next: Run ${colors.cyan}goodflows install${colors.reset} to install agents.
   } catch (error) {
     log.error(`Initialization failed: ${error.message}`);
     process.exit(1);
+  }
+}
+
+// Context store management
+function contextCommand(options) {
+  const { subcommand } = options;
+
+  const store = new ContextStore({ basePath: '.goodflows/context' });
+
+  switch (subcommand) {
+    case 'query': {
+      log.info('Querying context store...');
+      const results = store.query({ limit: 20 });
+      if (results.length === 0) {
+        console.log('No findings in context store.');
+      } else {
+        console.log(`\n${colors.bold}Findings (${results.length}):${colors.reset}\n`);
+        console.log('| Hash | File | Type | Status |');
+        console.log('|------|------|------|--------|');
+        for (const r of results) {
+          console.log(`| ${r._hash.slice(0, 8)} | ${r.file || '-'} | ${r.type || '-'} | ${r.status || 'open'} |`);
+        }
+      }
+      break;
+    }
+
+    case 'export': {
+      log.info('Exporting to markdown...');
+      const markdown = store.exportToMarkdown();
+      const outputPath = '.goodflows/export.md';
+      writeFileSync(outputPath, markdown);
+      log.success(`Exported to ${outputPath}`);
+      break;
+    }
+
+    case 'clear': {
+      log.warning('This will clear all context data. Use with caution.');
+      // Clear would need confirmation - just show stats for now
+      const stats = store.getStats();
+      console.log(`\n${colors.bold}Current Stats:${colors.reset}`);
+      console.log(`  Unique Findings: ${stats.uniqueFindings}`);
+      console.log(`  Files Covered: ${stats.filesCovered}`);
+      console.log(`\nTo clear, manually delete .goodflows/context/`);
+      break;
+    }
+
+    default:
+      console.log(`
+${colors.bold}Context Store Commands:${colors.reset}
+
+  ${colors.cyan}goodflows context query${colors.reset}    Query stored findings
+  ${colors.cyan}goodflows context export${colors.reset}   Export to markdown
+  ${colors.cyan}goodflows context clear${colors.reset}    Clear context data (shows stats)
+
+${colors.bold}Query Options:${colors.reset}
+  --type <type>     Filter by type (bug, security, etc.)
+  --file <path>     Filter by file path
+  --limit <n>       Limit results (default: 20)
+`);
+  }
+}
+
+// Migrate from legacy markdown memories
+function migrate() {
+  showLogo();
+  log.info('Migrating from legacy markdown memories...');
+
+  const legacyPath = '.serena/memories';
+  const findingsFile = join(legacyPath, 'coderabbit_findings.md');
+  const patternsFile = join(legacyPath, 'auto_fix_patterns.md');
+
+  if (!existsSync(legacyPath)) {
+    log.warning('No legacy memories found at .serena/memories/');
+    return;
+  }
+
+  // Initialize context store
+  const store = new ContextStore({ basePath: '.goodflows/context' });
+  const tracker = new PatternTracker({ basePath: '.goodflows/context/patterns' });
+
+  let findingsMigrated = 0;
+  let patternsMigrated = 0;
+
+  // Migrate findings
+  if (existsSync(findingsFile)) {
+    log.info('Parsing legacy findings...');
+    const content = readFileSync(findingsFile, 'utf-8');
+
+    // Parse markdown tables (simple extraction)
+    const tableMatch = content.match(/\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|/g);
+    if (tableMatch) {
+      for (const row of tableMatch) {
+        if (row.includes('Hash') || row.includes('---')) continue; // Skip header
+
+        const cells = row.split('|').map(c => c.trim()).filter(Boolean);
+        if (cells.length >= 4) {
+          const result = store.addFinding({
+            file: cells[1] !== '-' ? cells[1] : undefined,
+            type: cells[2] !== '-' ? cells[2] : 'unknown',
+            status: cells[3] !== '-' ? cells[3] : 'open',
+            description: `Migrated from legacy: ${cells[0]}`,
+            migrated: true,
+          });
+
+          if (result.added) findingsMigrated++;
+        }
+      }
+    }
+  }
+
+  // Migrate patterns
+  if (existsSync(patternsFile)) {
+    log.info('Parsing legacy patterns...');
+    const content = readFileSync(patternsFile, 'utf-8');
+
+    // Parse pattern sections
+    const patternSections = content.split(/^## /gm).filter(Boolean);
+    for (const section of patternSections) {
+      const lines = section.split('\n');
+      const patternId = lines[0]?.trim();
+      if (!patternId || patternId.startsWith('#')) continue;
+
+      let description = '';
+      let type = 'unknown';
+
+      for (const line of lines) {
+        if (line.includes('Description:')) {
+          description = line.split('Description:')[1]?.trim() || '';
+        }
+        if (line.includes('Type:')) {
+          type = line.split('Type:')[1]?.trim()?.replace(/`/g, '') || 'unknown';
+        }
+      }
+
+      if (description) {
+        tracker.registerPattern({
+          patternId,
+          description,
+          type,
+          file: 'migrated',
+        });
+        patternsMigrated++;
+      }
+    }
+  }
+
+  log.success('Migration complete!');
+  console.log(`
+${colors.bold}Migration Summary:${colors.reset}
+  ${colors.green}•${colors.reset} Findings migrated: ${findingsMigrated}
+  ${colors.green}•${colors.reset} Patterns migrated: ${patternsMigrated}
+  ${colors.green}•${colors.reset} New location: .goodflows/context/
+
+${colors.yellow}Note:${colors.reset} Legacy files preserved at .serena/memories/
+`);
+}
+
+// Show context store statistics
+function stats() {
+  showLogo();
+
+  if (!existsSync('.goodflows/context')) {
+    log.warning('Context store not initialized. Run: goodflows init');
+    return;
+  }
+
+  const store = new ContextStore({ basePath: '.goodflows/context' });
+  const tracker = new PatternTracker({ basePath: '.goodflows/context/patterns' });
+
+  const storeStats = store.getStats();
+  const patternStats = tracker.getStats();
+
+  console.log(`
+${colors.bold}${colors.cyan}Context Store Statistics${colors.reset}
+
+${colors.bold}Findings:${colors.reset}
+  Total Processed:    ${storeStats.totalFindings}
+  Unique Stored:      ${storeStats.uniqueFindings}
+  Duplicates Skipped: ${storeStats.duplicatesSkipped}
+  Files Covered:      ${storeStats.filesCovered}
+  Types Tracked:      ${storeStats.typesCovered}
+
+${colors.bold}Patterns:${colors.reset}
+  Total Patterns:     ${patternStats.totalPatterns}
+  Custom Patterns:    ${patternStats.customPatterns}
+  Builtin Patterns:   ${patternStats.builtinPatterns}
+  Avg Confidence:     ${(patternStats.avgConfidence * 100).toFixed(1)}%
+  Total Applications: ${patternStats.totalApplications}
+  Overall Success:    ${(patternStats.successRate * 100).toFixed(1)}%
+`);
+
+  if (patternStats.topPatterns.length > 0) {
+    console.log(`${colors.bold}Top Patterns:${colors.reset}`);
+    for (const p of patternStats.topPatterns) {
+      console.log(`  ${colors.cyan}${p.id}${colors.reset}: ${p.instances} uses, ${(p.confidence * 100).toFixed(0)}% confidence`);
+    }
+    console.log('');
   }
 }
 
@@ -480,10 +714,19 @@ function main() {
       uninstall(options);
       break;
     case 'init':
-      init();
+      init(options);
       break;
     case 'list':
       listAgents();
+      break;
+    case 'context':
+      contextCommand(options);
+      break;
+    case 'migrate':
+      migrate();
+      break;
+    case 'stats':
+      stats();
       break;
     case 'version':
       showVersion();

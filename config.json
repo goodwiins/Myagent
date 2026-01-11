@@ -46,12 +46,38 @@
 
   "memory": {
     "enabled": true,
-    "path": ".serena/memories",
-    "files": {
+    "backend": "hybrid",
+    "paths": {
+      "legacy": ".serena/memories",
+      "context": ".goodflows/context"
+    },
+    "legacyFiles": {
       "findings": "coderabbit_findings.md",
       "patterns": "auto_fix_patterns.md",
       "runs": "agent_runs.md",
       "queue": "issue_queue.md"
+    },
+    "index": {
+      "enabled": true,
+      "bloomFilter": true,
+      "invertedIndex": true
+    },
+    "deduplication": {
+      "enabled": true,
+      "hashAlgorithm": "sha256",
+      "similarity": {
+        "threshold": 0.85,
+        "method": "trigram"
+      }
+    },
+    "ttl": {
+      "findings": "30d",
+      "patterns": "forever",
+      "sessions": "7d"
+    },
+    "partitioning": {
+      "enabled": true,
+      "strategy": "monthly"
     }
   },
 
