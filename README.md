@@ -28,6 +28,11 @@
 
 ## 📦 Installation
 
+### Prerequisites
+
+- **Node.js** >= 18.0.0
+- **npm** or **bun** package manager
+
 ### NPM (Recommended)
 
 ```bash
@@ -38,6 +43,12 @@ npm install -g goodflows
 
 ```bash
 bun add -g goodflows
+```
+
+### Shell Script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goodwiins/goodflows/main/install.sh | bash
 ```
 
 ### From Source
@@ -205,18 +216,30 @@ GoodFlows includes comprehensive error handling:
 
 ```
 goodflows/
-├── package.json          # NPM package config
+├── package.json              # NPM package config
 ├── bin/
-│   └── goodflows.js      # CLI entry point
+│   └── goodflows.js          # CLI entry point
 ├── agents/
 │   ├── review-orchestrator.md
 │   ├── issue-creator.md
 │   └── coderabbit-auto-fixer.md
+├── lib/
+│   ├── index.js              # Library exports
+│   ├── context-store.js      # Context management
+│   ├── context-index.js      # Context indexing
+│   └── pattern-tracker.js    # Fix pattern tracking
 ├── scripts/
-│   ├── postinstall.js
-│   └── test.js
-├── config.json           # Default configuration
-├── CLAUDE.md             # Project documentation
+│   ├── postinstall.js        # Post-install setup
+│   └── test.js               # Test runner
+├── .serena/
+│   └── memories/             # Agent memory storage
+│       ├── coderabbit_findings.md
+│       └── auto_fix_patterns.md
+├── config.json               # Default configuration
+├── install.sh                # Shell installer script
+├── Makefile                  # Build automation
+├── CLAUDE.md                 # Project documentation
+├── LICENSE                   # MIT License
 └── README.md
 ```
 
@@ -235,6 +258,21 @@ npm test
 
 # Link for local development
 npm link
+```
+
+### Make Commands
+
+```bash
+make help              # Show all available commands
+make install           # Install locally for Claude Code
+make install-global    # Install globally
+make install-cursor    # Install for Cursor
+make install-all       # Install for all supported CLIs
+make test              # Run tests
+make lint              # Lint markdown files
+make check-deps        # Check for required dependencies
+make init-memory       # Initialize memory files
+make clean             # Clean generated files
 ```
 
 ## 🤝 Contributing
@@ -263,6 +301,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 📖 [Documentation](./CLAUDE.md)
 - 🐛 [Issue Tracker](https://github.com/goodwiins/goodflows/issues)
 - 💬 [Discussions](https://github.com/goodwiins/goodflows/discussions)
+- 💖 [Sponsor](https://github.com/sponsors/goodwiins)
 
 ---
 
