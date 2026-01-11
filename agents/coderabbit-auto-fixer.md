@@ -95,6 +95,99 @@ return {
 };
 ```
 
+## MANDATORY Memory & Context Workflow
+
+**This workflow is REQUIRED for every fix operation.**
+
+### Pre-Fix (ALWAYS do these first)
+
+```mermaid
+flowchart LR
+    A[Start] --> B[1. Read Serena Memory]
+    B --> C[2. Check GoodFlows Index]
+    C --> D[3. Get Pattern Recommendations]
+    D --> E[Proceed to Fix]
+```
+
+1. **Read Serena Memory** - Check for existing patterns:
+   ```
+   mcp__plugin_serena_serena__read_memory → auto_fix_patterns.md
+   ```
+   Look for:
+   - Existing patterns matching this issue type
+   - Previous fixes for similar files
+   - Known failure modes to avoid
+
+2. **Check GoodFlows Context Index** - Avoid duplicates:
+   ```javascript
+   // Check if issue was already fixed
+   const index = await fs.readFile('.goodflows/context/index.json');
+   if (index.byIssue[issueId]?.status === 'fixed') {
+     console.log('Issue already fixed, skipping');
+     return;
+   }
+   ```
+
+3. **Get Pattern Recommendations**:
+   ```javascript
+   const patterns = tracker.recommend(finding.type, finding.description);
+   const bestPattern = patterns.find(p => p.confidence > 0.7);
+   ```
+
+### Post-Fix (ALWAYS do these after success)
+
+```mermaid
+flowchart LR
+    A[Fix Verified] --> B[1. Update Serena Memory]
+    B --> C[2. Update GoodFlows Index]
+    C --> D[3. Update Linear]
+    D --> E[Done]
+```
+
+1. **Update Serena Memory** - Record the fix pattern:
+   ```
+   mcp__plugin_serena_serena__write_memory → auto_fix_patterns.md
+   ```
+   Add:
+   ```markdown
+   ## Pattern: [pattern-id]
+   - **Confidence**: [0.0-1.0]
+   - **Issue**: GOO-XX
+   - **File**: path/to/file.ext
+   - **Applied**: YYYY-MM-DD
+   - **Before**: [code snippet]
+   - **After**: [code snippet]
+   ```
+
+2. **Update GoodFlows Context Index**:
+   ```javascript
+   // Update .goodflows/context/index.json
+   index.byIssue[issueId] = {
+     status: 'fixed',
+     pattern: patternId,
+     file: filePath,
+     timestamp: new Date().toISOString()
+   };
+
+   index.patterns[patternId] = index.patterns[patternId] || { confidence: 0.5, timesApplied: 0, issues: [] };
+   index.patterns[patternId].timesApplied++;
+   index.patterns[patternId].issues.push(issueId);
+   index.patterns[patternId].confidence = Math.min(0.99, index.patterns[patternId].confidence + 0.05);
+   ```
+
+3. **Update Linear with pattern reference**:
+   ```
+   mcp__plugin_linear_linear__create_comment
+   ```
+   Include: pattern ID, confidence score, verification results
+
+### Workflow Enforcement
+
+**NEVER skip these steps.** If Serena MCP is unavailable:
+- Fall back to direct file reads/writes for `.serena/memories/` and `.goodflows/context/`
+- Log warning that MCP was unavailable
+- Still update both stores
+
 ## Your Responsibilities
 
 ### 1. Analyze the Fix
