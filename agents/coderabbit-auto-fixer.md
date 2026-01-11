@@ -94,19 +94,103 @@ For each fix:
 - Code organization → Restructure carefully
 - Dead code → Remove safely
 
-### 4. Verification Steps
+### 4. Pre-Fix State Capture
 
-After applying each fix:
+Before applying any fix, capture the current state for potential rollback:
 
-1. Run relevant linter:
-   - Python: `ruff check <file>` or `mypy <file>`
-   - TypeScript: `npx tsc --noEmit`
-   - ESLint: `npx eslint <file>`
-2. Check for import errors
-3. Verify no syntax errors
-4. Run tests if available
+```bash
+# Store modified files list
+export FIX_FILES="path/to/file1.py path/to/file2.ts"
 
-### 5. Update Linear Status
+# Create backup of current state
+git stash push -m "pre-fix-backup-$(date +%s)" -- $FIX_FILES 2>/dev/null || true
+
+# Capture current test state (optional, for complex fixes)
+pytest --collect-only -q 2>/dev/null > /tmp/pre_fix_tests.txt || true
+```
+
+### 5. Comprehensive Verification
+
+After applying each fix, run the verification script or execute steps manually:
+
+**Option A: Use verification script (recommended)**
+
+```bash
+./scripts/verify-fix.sh --file path/to/modified/file.py --issue GOO-XX
+```
+
+**Option B: Manual verification steps**
+
+1. **Type Checks**:
+   - Python: `mypy backend/src/ --ignore-missing-imports`
+   - TypeScript: `cd frontend && npm run type-check`
+
+2. **Linting**:
+   - Python: `ruff check backend/src/`
+   - Frontend: `cd frontend && npm run lint`
+
+3. **Run Affected Tests**:
+   ```bash
+   # Python - run tests for modified module
+   pytest tests/ -x --tb=short -k "test_module_name"
+
+   # Frontend - run relevant tests
+   cd frontend && npm test -- --watchAll=false
+   ```
+
+4. **Check for Import/Syntax Errors**:
+   ```bash
+   python -m py_compile path/to/file.py
+   ```
+
+### 6. Rollback on Failure
+
+If verification fails, automatically rollback:
+
+```bash
+# Restore original files
+git checkout -- $FIX_FILES
+
+# Or restore from stash if available
+git stash pop
+```
+
+**Rollback Protocol:**
+
+1. If tests fail → Revert changes immediately
+2. If type checks fail → Attempt to fix, else revert
+3. If lint fails → Attempt auto-fix, else revert
+4. Document failure reason in Linear issue
+5. Add `needs-manual-review` label
+
+### 7. Success Confirmation
+
+After verification passes:
+
+1. **Commit Changes** (if requested):
+   ```bash
+   git add $FIX_FILES
+   git commit -m "fix(GOO-XX): [brief description]
+
+   Fixes #GOO-XX
+
+   Changes:
+   - [What was fixed]
+
+   Verification:
+   - [x] Type checks passed
+   - [x] Lint checks passed
+   - [x] Tests passed
+
+   Co-Authored-By: CodeRabbit Auto-Fixer <noreply@coderabbit.ai>"
+   ```
+
+2. **Clean up stash** (if backup was created):
+   ```bash
+   git stash drop 2>/dev/null || true
+   ```
+
+### 8. Update Linear Status
 
 After successful fix:
 
@@ -116,7 +200,7 @@ After successful fix:
   - Files modified
   - Verification results
 
-### 6. Handle Failures
+### 9. Handle Failures
 
 If a fix cannot be applied:
 

@@ -25,6 +25,7 @@ triggers:
   - "full code review workflow"
   - "review my changes"
   - "run review pipeline"
+  - "create issues"
 ---
 
 You are a Code Review Orchestrator specializing in automated quality assurance workflows. You coordinate the entire code review lifecycle: review → categorize → create issues → fix → verify.
