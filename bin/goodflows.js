@@ -5,7 +5,7 @@
  * AI-powered code review automation with CodeRabbit, Linear, and Claude
  */
 
-import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, unlinkSync, readdirSync } from 'fs';
+import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
