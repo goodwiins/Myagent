@@ -465,10 +465,13 @@ function init(options = {}) {
       }, null, 2));
     }
 
-    // Copy CLAUDE.md
+    // Copy CLAUDE.md only if it doesn't exist
     const claudeSource = join(PACKAGE_ROOT, 'CLAUDE.md');
-    if (existsSync(claudeSource)) {
+    const claudeExists = existsSync('CLAUDE.md');
+    if (existsSync(claudeSource) && !claudeExists) {
       copyFileSync(claudeSource, 'CLAUDE.md');
+    } else if (claudeExists && verbose) {
+      log.info('CLAUDE.md already exists, skipping');
     }
 
     // Initialize legacy memory files
@@ -495,7 +498,7 @@ function init(options = {}) {
     console.log(`
 ${colors.bold}Created:${colors.reset}
   ${colors.green}•${colors.reset} goodflows.config.json (configuration file)
-  ${colors.green}•${colors.reset} CLAUDE.md (project documentation)
+  ${claudeExists ? `${colors.yellow}•${colors.reset} CLAUDE.md (skipped - already exists)` : `${colors.green}•${colors.reset} CLAUDE.md (project documentation)`}
   ${colors.green}•${colors.reset} .claude/agents/ (agent directory)
   ${colors.green}•${colors.reset} .serena/memories/ (legacy memory storage)
   ${colors.green}•${colors.reset} .goodflows/context/ (enhanced context store)
