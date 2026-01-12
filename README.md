@@ -224,6 +224,8 @@ Add to your Claude Code settings (`~/.claude/settings.json`):
 | `goodflows_track_issue` | Track issue progress |
 | `goodflows_start_work` | Start a work unit |
 | `goodflows_complete_work` | Complete work and get summary |
+| `goodflows_preflight_check` | Check for conflicts before creating issues |
+| `goodflows_resolve_linear_team` | Resolve Linear team by key/name/ID |
 | `goodflows_project_info` | Get project/GitHub context |
 | `goodflows_export_handoff` | Export state for LLM handoff |
 | `goodflows_generate_resume_prompt` | Generate prompt for another LLM |
@@ -239,6 +241,36 @@ session.trackIssue('GOO-53', 'fixed');
 session.completeWork({ success: true });
 // Summary auto-derived: { filesCreated: 1, filesModified: 1, issuesFixed: 1 }
 ```
+
+### Pre-flight Conflict Detection
+
+Before creating issues, agents can check for existing duplicates to prevent clutter:
+
+```javascript
+// Check findings against existing Linear issues
+const result = goodflows_preflight_check({
+  action: 'create_issue',
+  findings: [{ file: 'auth.js', description: 'Hardcoded API key', type: 'security' }],
+  sessionId: 'session_xxx',
+  team: 'YourTeam',
+  linearIssues: [...],  // Pre-fetched from linear_list_issues
+});
+
+// Result shows conflicts and recommendations
+if (result.status === 'conflicts_found') {
+  // result.conflicts: matches with existing issues
+  // result.clear: findings safe to create
+  // result.promptOptions: [skip, link, force, abort]
+}
+```
+
+**Match Types:**
+| Type | Condition | Is Conflict |
+|------|-----------|-------------|
+| `exact_match` | Same file + high description similarity | Yes |
+| `likely_duplicate` | Very high description similarity (>= 0.7) | Yes |
+| `same_file` | Same file, moderate similarity | No (informational) |
+| `similar` | Moderate description similarity | No (informational) |
 
 ### LLM/IDE Handoff
 
