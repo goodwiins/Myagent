@@ -47,6 +47,7 @@ import { PriorityQueue } from '../lib/priority-queue.js';
 import { PlanExecutor } from '../lib/plan-executor.js';
 import { ContextFileManager } from '../lib/context-files.js';
 import { parseTask, validateTask, generateTaskPrompt } from '../lib/xml-task-parser.js';
+import { findLinearMatches, getMatchRecommendation } from '../lib/context-index.js';
 
 // ─────────────────────────────────────────────────────────────
 // Working Directory Resolution
@@ -787,6 +788,42 @@ Examples:
     },
   },
   {
+    name: 'goodflows_resolve_linear_team',
+    description: `Resolve a Linear team from key, name, or ID.
+
+CRITICAL: Always use this before creating issues to ensure valid team name.
+
+The team input might be:
+- A team key (e.g., "GOO") - the prefix used in issue IDs like GOO-82
+- A team name (e.g., "Goodwiinz") - the actual team name in Linear
+- A team UUID - the internal Linear ID
+
+Returns the resolved team with id, name, and key for use in create_issue calls.
+
+Example:
+- Input: { "team": "GOO" }
+- Output: { "resolved": true, "id": "uuid", "name": "Goodwiinz", "key": "GOO" }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        team: { type: 'string', description: 'Team key, name, or ID to resolve' },
+        teams: {
+          type: 'array',
+          description: 'Pre-fetched teams from linear_list_teams (optional, avoids extra API call)',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              key: { type: 'string' },
+            },
+          },
+        },
+      },
+      required: ['team'],
+    },
+  },
+  {
     name: 'goodflows_auto_index',
     description: `Enable or configure automatic indexing of findings.
 
@@ -805,6 +842,89 @@ When enabled, findings are automatically indexed when:
         },
         sessionId: { type: 'string', description: 'Session to attach auto-indexed findings to' },
       },
+    },
+  },
+
+  // ========== Preflight Check Tool ==========
+  {
+    name: 'goodflows_preflight_check',
+    description: `Check for conflicts with existing Linear issues before taking action.
+
+MUST be called before:
+- Creating issues (prevents duplicates)
+- Applying fixes (ensures issue still relevant)
+- Running reviews (skips known issues)
+
+Caches Linear issues for the session (5 min TTL) to avoid repeated API calls.
+
+Returns:
+- status: "clear" | "conflicts_found" | "error"
+- conflicts: Findings that match existing issues (with match type and similarity)
+- clear: Findings safe to proceed with
+- requiresConfirmation: true if user decision needed
+
+When conflicts are found, the agent should prompt the user with options:
+- Skip conflicts: Only process clear findings
+- Link to existing: Add comments to existing issues
+- Force create: Create anyway (marked as potential duplicate)
+- Abort: Stop workflow
+
+Example:
+{
+  "action": "create_issue",
+  "findings": [{ "file": "src/auth.ts", "description": "Missing validation" }],
+  "sessionId": "session_xxx",
+  "team": "Goodwiinz",
+  "linearIssues": [...] // Pre-fetched from linear_list_issues
+}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create_issue', 'fix_issue', 'review'],
+          description: 'What action you intend to take'
+        },
+        findings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              file: { type: 'string', description: 'File path' },
+              description: { type: 'string', description: 'Finding description' },
+              type: { type: 'string', description: 'Finding type' }
+            }
+          },
+          description: 'Findings/actions you intend to process'
+        },
+        sessionId: { type: 'string', description: 'Session ID for caching' },
+        team: { type: 'string', description: 'Linear team name (resolved, not key)' },
+        linearIssues: {
+          type: 'array',
+          description: 'Pre-fetched issues from linear_list_issues (recommended to avoid extra API calls)',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              identifier: { type: 'string' },
+              title: { type: 'string' },
+              description: { type: 'string' },
+              status: { type: 'string' },
+              url: { type: 'string' }
+            }
+          }
+        },
+        options: {
+          type: 'object',
+          properties: {
+            similarityThreshold: { type: 'number', description: 'Similarity threshold 0-1 (default: 0.5)' },
+            includeInProgress: { type: 'boolean', description: 'Include in-progress issues (default: true)' },
+            includeDone: { type: 'boolean', description: 'Include done issues (default: false)' },
+            forceRefresh: { type: 'boolean', description: 'Bypass cache and refresh (default: false)' }
+          }
+        }
+      },
+      required: ['action', 'findings', 'sessionId']
     },
   },
 
@@ -2153,6 +2273,66 @@ await goodflows_context_query({ status: "open", limit: 10 })
         }
       }
 
+      // ========== Linear Team Resolution Handler ==========
+      case 'goodflows_resolve_linear_team': {
+        try {
+          const teamInput = args.team;
+          let teams = args.teams;
+
+          // If no pre-fetched teams, we need them passed from Linear MCP
+          if (!teams || !Array.isArray(teams) || teams.length === 0) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                resolved: false,
+                error: 'No teams provided. First call linear_list_teams() then pass the result.',
+                hint: 'const teams = await linear_list_teams(); await goodflows_resolve_linear_team({ team: "GOO", teams })',
+                input: teamInput,
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          // Try to find matching team by key, name, or ID
+          const inputLower = teamInput.toLowerCase();
+          const resolved = teams.find(t =>
+            t.key === teamInput ||
+            t.key?.toLowerCase() === inputLower ||
+            t.name === teamInput ||
+            t.name?.toLowerCase() === inputLower ||
+            t.id === teamInput
+          );
+
+          if (!resolved) {
+            const availableTeams = teams.map(t => `${t.name} (key: ${t.key})`).join(', ');
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                resolved: false,
+                error: `Team "${teamInput}" not found`,
+                availableTeams,
+                hint: `Use one of: ${availableTeams}`,
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              resolved: true,
+              id: resolved.id,
+              name: resolved.name,
+              key: resolved.key,
+              input: teamInput,
+              message: `Resolved "${teamInput}" to team "${resolved.name}" (${resolved.key})`,
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
       // ========== Auto Index Handler ==========
       case 'goodflows_auto_index': {
         if (args.enabled !== undefined) {
@@ -2182,6 +2362,176 @@ await goodflows_context_query({ status: "open", limit: 10 })
             config: autoIndexConfig,
           }, null, 2) }],
         };
+      }
+
+      // ========== Preflight Check Handler ==========
+      case 'goodflows_preflight_check': {
+        try {
+          const { action, findings, sessionId, team, linearIssues, options = {} } = args;
+          const {
+            similarityThreshold = 0.5,
+            includeInProgress = true,
+            includeDone = false,
+            forceRefresh = false
+          } = options;
+
+          // Validate inputs
+          if (!findings || !Array.isArray(findings) || findings.length === 0) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                status: 'clear',
+                conflicts: [],
+                clear: [],
+                summary: { total: 0, conflicts: 0, clear: 0 },
+                requiresConfirmation: false,
+                message: 'No findings to check'
+              }, null, 2) }],
+            };
+          }
+
+          // Get session for caching
+          const session = activeSessions.get(sessionId);
+          const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+          // Try to get cached issues
+          let issues = null;
+          let cacheInfo = { hit: false, age: null };
+
+          if (session && !forceRefresh) {
+            const cached = session.get('preflight.linearIssuesCache');
+            const cachedAt = session.get('preflight.cacheTimestamp');
+            if (cached && cachedAt && (Date.now() - cachedAt) < CACHE_TTL) {
+              issues = cached;
+              cacheInfo = { hit: true, age: Math.round((Date.now() - cachedAt) / 1000) };
+            }
+          }
+
+          // Use provided issues or cached issues
+          if (!issues) {
+            if (linearIssues && Array.isArray(linearIssues) && linearIssues.length > 0) {
+              issues = linearIssues;
+              // Cache for future calls
+              if (session) {
+                session.set('preflight.linearIssuesCache', issues);
+                session.set('preflight.cacheTimestamp', Date.now());
+              }
+              cacheInfo = { hit: false, source: 'provided' };
+            } else {
+              // No issues available - return clear (can't check)
+              return {
+                content: [{ type: 'text', text: JSON.stringify({
+                  status: 'clear',
+                  conflicts: [],
+                  clear: findings,
+                  summary: { total: findings.length, conflicts: 0, clear: findings.length },
+                  requiresConfirmation: false,
+                  warning: 'No Linear issues provided for comparison. Pass linearIssues from linear_list_issues() for accurate conflict detection.',
+                  cache: cacheInfo
+                }, null, 2) }],
+              };
+            }
+          }
+
+          // Build status filter
+          const includeStatus = ['Backlog', 'Todo', 'backlog', 'todo', 'unstarted'];
+          if (includeInProgress) {
+            includeStatus.push('In Progress', 'in progress', 'started');
+          }
+          if (includeDone) {
+            includeStatus.push('Done', 'done', 'completed', 'Canceled', 'canceled');
+          }
+
+          // Check each finding for conflicts
+          const conflicts = [];
+          const clear = [];
+
+          for (const finding of findings) {
+            const matches = findLinearMatches(finding, issues, {
+              threshold: similarityThreshold,
+              includeStatus
+            });
+
+            if (matches.length > 0) {
+              // Get recommendation for each match
+              const enrichedMatches = matches.map(m => ({
+                ...m,
+                recommendation: getMatchRecommendation(action, m)
+              }));
+
+              conflicts.push({
+                finding,
+                matches: enrichedMatches,
+                bestMatch: enrichedMatches[0],
+                recommendation: enrichedMatches[0].recommendation
+              });
+            } else {
+              clear.push(finding);
+            }
+          }
+
+          // Build user-friendly conflict summary for prompting
+          let conflictSummary = null;
+          if (conflicts.length > 0) {
+            conflictSummary = conflicts.map((c, i) => {
+              const match = c.bestMatch;
+              return {
+                index: i + 1,
+                finding: `${c.finding.file}: ${c.finding.description?.slice(0, 50)}...`,
+                matchedIssue: match.issue.id,
+                matchedTitle: match.issue.title,
+                matchType: match.type,
+                similarity: `${Math.round(match.similarity * 100)}%`,
+                issueStatus: match.issue.status,
+                issueUrl: match.issue.url,
+                recommendation: match.recommendation
+              };
+            });
+          }
+
+          // Store preflight results in session
+          if (session) {
+            session.set('preflight.lastCheck', {
+              action,
+              timestamp: Date.now(),
+              conflictsFound: conflicts.length,
+              clearCount: clear.length
+            });
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              status: conflicts.length > 0 ? 'conflicts_found' : 'clear',
+              conflicts,
+              clear,
+              summary: {
+                total: findings.length,
+                conflicts: conflicts.length,
+                clear: clear.length
+              },
+              requiresConfirmation: conflicts.length > 0,
+              conflictSummary,
+              cache: {
+                ...cacheInfo,
+                issueCount: issues.length
+              },
+              promptOptions: conflicts.length > 0 ? [
+                { id: 'skip', label: 'Skip conflicts', description: `Process only ${clear.length} clear findings` },
+                { id: 'link', label: 'Link to existing', description: 'Add comments to existing issues instead' },
+                { id: 'force', label: 'Force create', description: 'Create anyway (marked as potential duplicate)' },
+                { id: 'abort', label: 'Abort', description: 'Stop workflow entirely' }
+              ] : null
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              status: 'error',
+              error: error.message,
+              stack: error.stack
+            }, null, 2) }],
+            isError: true,
+          };
+        }
       }
 
       // ========== Easy Tracking Handlers ==========
@@ -2228,10 +2578,20 @@ await goodflows_context_query({ status: "open", limit: 10 })
           };
         }
         session.trackIssue(args.issueId, args.action || 'created', args.meta || {});
+        
+        // Invalidate preflight cache when issues are created/updated/fixed
+        // This ensures next preflight check gets fresh data from Linear
+        const cacheInvalidatingActions = ['created', 'fixed', 'updated'];
+        if (cacheInvalidatingActions.includes(args.action)) {
+          session.set('preflight.linearIssuesCache', null);
+          session.set('preflight.cacheTimestamp', null);
+        }
+        
         return {
           content: [{ type: 'text', text: JSON.stringify({
             success: true,
             tracked: { issueId: args.issueId, action: args.action || 'created' },
+            cacheInvalidated: cacheInvalidatingActions.includes(args.action),
           }, null, 2) }],
         };
       }
