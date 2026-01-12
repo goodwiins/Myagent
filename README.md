@@ -1,4 +1,4 @@
-# 🚀 GoodFlows
+# GoodFlows
 
 [![npm version](https://img.shields.io/npm/v/goodflows.svg)](https://www.npmjs.com/package/goodflows)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -16,20 +16,20 @@
    ╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝ ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝
 ```
 
-## ✨ Features
+## Features
 
-- **🔍 Automated Code Review** - Run CodeRabbit reviews on uncommitted changes, staged files, or PRs
-- **📋 Smart Issue Creation** - Automatically create well-structured Linear issues from findings
-- **🔧 Intelligent Auto-Fixing** - Safely apply fixes with verification and rollback support
-- **🔄 Complete Workflow Orchestration** - End-to-end automation from review to fix
-- **🧠 Memory & Learning** - Remembers past findings and fix patterns for smarter automation
-- **⚡ Multi-Model Optimization** - Uses the right Claude model for each task (Opus/Sonnet/Haiku)
-- **🔌 Multi-CLI Support** - Works with Claude Code, Cursor, Continue, Aider, Windsurf
-- **🌐 LLM-Agnostic** - Seamlessly switch between Claude, GPT-4, Gemini, or any model
-- **📡 MCP Server** - Full Model Context Protocol support for IDE integration
-- **📊 Easy Tracking** - Simple helpers to track files, issues, and work progress
+- **Automated Code Review** - Run CodeRabbit reviews on uncommitted changes, staged files, or PRs
+- **Smart Issue Creation** - Automatically create well-structured Linear issues from findings
+- **Intelligent Auto-Fixing** - Safely apply fixes with verification and rollback support
+- **Complete Workflow Orchestration** - End-to-end automation from review to fix
+- **Memory & Learning** - Remembers past findings and fix patterns for smarter automation
+- **Multi-Model Optimization** - Uses the right Claude model for each task (Opus/Sonnet/Haiku)
+- **Multi-CLI Support** - Works with Claude Code, Cursor, Continue, Aider, Windsurf
+- **LLM-Agnostic** - Seamlessly switch between Claude, GPT-4, Gemini, or any model
+- **MCP Server** - Full Model Context Protocol support for IDE integration
+- **Easy Tracking** - Simple helpers to track files, issues, and work progress
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 
@@ -62,7 +62,7 @@ cd goodflows
 npm install -g .
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Install Agents for Your CLI
 
@@ -96,7 +96,7 @@ In your AI coding assistant:
 > /fix-linear GOO-31
 ```
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -117,7 +117,7 @@ In your AI coding assistant:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## 🎯 Agents
+## Agents
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
@@ -125,7 +125,7 @@ In your AI coding assistant:
 | `issue-creator` | Haiku | Creates structured Linear issues from findings |
 | `coderabbit-auto-fixer` | Opus | Applies fixes safely with verification |
 
-## 📖 Commands
+## Commands
 
 ### CLI Commands
 
@@ -150,7 +150,7 @@ goodflows version          # Show version
 | `/fix-linear GOO-31` | Fix specific Linear issue |
 | `auto-fix this issue` | Apply automated fix |
 
-## 🔧 Configuration
+## Configuration
 
 ### Initialize Config
 
@@ -186,17 +186,17 @@ This creates `goodflows.config.json`:
 | `ANTHROPIC_API_KEY` | Yes | Claude API key |
 | `CODERABBIT_API_KEY` | No | CodeRabbit API key |
 
-## 🔌 Supported CLIs
+## Supported CLIs
 
 | CLI | Command | Status |
 |-----|---------|--------|
-| [Claude Code](https://claude.ai/code) | `goodflows install` | ✅ Full Support |
-| [Cursor](https://cursor.sh) | `goodflows install -c cursor` | ✅ Full Support |
-| [Continue.dev](https://continue.dev) | `goodflows install -c continue` | ✅ Full Support |
-| [Aider](https://aider.chat) | `goodflows install -c aider` | ✅ Full Support |
-| [Windsurf](https://codeium.com/windsurf) | `goodflows install -c windsurf` | ✅ Full Support |
+| [Claude Code](https://claude.ai/code) | `goodflows install` | Full Support |
+| [Cursor](https://cursor.sh) | `goodflows install -c cursor` | Full Support |
+| [Continue.dev](https://continue.dev) | `goodflows install -c continue` | Full Support |
+| [Aider](https://aider.chat) | `goodflows install -c aider` | Full Support |
+| [Windsurf](https://codeium.com/windsurf) | `goodflows install -c windsurf` | Full Support |
 
-## 📡 MCP Server
+## MCP Server
 
 GoodFlows includes a full MCP (Model Context Protocol) server for IDE integration.
 
@@ -254,7 +254,7 @@ goodflows_session_resume({ sessionId: 'session_xxx' })
 goodflows_get_tracking_summary()
 ```
 
-## 📊 Priority Mapping
+## Priority Mapping
 
 | Finding Type | Linear Labels | Priority |
 |--------------|---------------|----------|
@@ -264,16 +264,16 @@ goodflows_get_tracking_summary()
 | `performance` | `performance` | P3 (Normal) |
 | `documentation` | `docs` | P4 (Low) |
 
-## 🛡️ Error Handling
+## Error Handling
 
 GoodFlows includes comprehensive error handling:
 
-- **Retryable errors**: Timeouts, rate limits → automatic retry with backoff
-- **Fallback actions**: API down → queue locally for later
+- **Retryable errors**: Timeouts, rate limits - automatic retry with backoff
+- **Fallback actions**: API down - queue locally for later
 - **Partial success**: Continue workflow even if some steps fail
 - **Rollback support**: Revert failed fixes automatically
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 goodflows/
@@ -302,7 +302,7 @@ goodflows/
 └── README.md
 ```
 
-## 🧪 Development
+## Development
 
 ```bash
 # Clone repository
@@ -334,7 +334,7 @@ make init-memory       # Initialize memory files
 make clean             # Clean generated files
 ```
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please read our contributing guidelines first.
 
@@ -344,26 +344,26 @@ Contributions are welcome! Please read our contributing guidelines first.
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [CodeRabbit](https://coderabbit.ai) - AI code review
 - [Linear](https://linear.app) - Issue tracking
 - [Anthropic Claude](https://anthropic.com) - AI models
 - [Serena](https://github.com/serena-ai/serena) - Semantic code analysis
 
-## 📞 Support
+## Support
 
-- 📖 [Documentation](./CLAUDE.md)
-- 🐛 [Issue Tracker](https://github.com/goodwiins/goodflows/issues)
-- 💬 [Discussions](https://github.com/goodwiins/goodflows/discussions)
-- 💖 [Sponsor](https://github.com/sponsors/goodwiins)
+- [Documentation](./CLAUDE.md)
+- [Issue Tracker](https://github.com/goodwiins/goodflows/issues)
+- [Discussions](https://github.com/goodwiins/goodflows/discussions)
+- [Sponsor](https://github.com/sponsors/goodwiins)
 
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/goodwiins">@goodwiins</a>
+  Made with love by <a href="https://github.com/goodwiins">@goodwiins</a>
 </p>
