@@ -19,6 +19,7 @@ tools:
   - goodflows_session_set_context
   - goodflows_session_checkpoint
   - goodflows_session_rollback
+  - goodflows_preflight_check
   # GoodFlows MCP tools (MANDATORY tracking)
   - goodflows_start_work
   - goodflows_track_file
@@ -26,6 +27,7 @@ tools:
   - goodflows_complete_work
   - goodflows_get_tracking_summary
   # Linear MCP tools
+  - linear_list_issues
   - linear_get_issue
   - linear_update_issue
   - linear_create_comment
@@ -109,6 +111,63 @@ flowchart TD
     F -->|Yes| H[Proceed with fix]
     G --> H
 ```
+
+## MANDATORY: Pre-flight Check (Before Applying Fixes)
+
+**CRITICAL: Before fixing issues, verify they haven't already been fixed or reassigned.**
+
+### Step 1: Run Preflight Check
+
+```javascript
+// Build findings from issues you plan to fix
+const findingsToFix = issuesToFix.map(issueId => {
+  const issue = await linear_get_issue({ id: issueId });
+  return {
+    file: extractFileFromDescription(issue.description),
+    description: issue.title,
+    type: 'fix_issue',
+    issueId: issueId
+  };
+});
+
+const preflight = await goodflows_preflight_check({
+  action: "fix_issue",
+  findings: findingsToFix,
+  sessionId: sessionId,
+  team: teamName,
+  linearIssues: await linear_list_issues({ team: teamName })
+});
+```
+
+### Step 2: Handle Results
+
+For `fix_issue` action, preflight checks:
+- Is the issue still **open**? (not Done/Canceled)
+- Has the issue been **reassigned** since creation?
+- Are there **related issues** that should be fixed together?
+
+**If `preflight.status === "conflicts_found"`:**
+
+```
+⚠️ Some issues may not need fixing:
+
+${preflight.conflicts.map(c => 
+  `• [${c.finding.issueId}] - ${c.bestMatch.issue.status} (${c.recommendation})`
+).join('\n')}
+
+Options:
+1. Skip conflicts - Only fix issues that are still open
+2. Force fix - Apply fixes anyway
+3. Abort - Stop fix workflow
+```
+
+### Step 3: Execute Based on Decision
+
+- **Skip**: Only process issues from `preflight.clear`
+- **Force**: Process all issues (user takes responsibility)
+- **Abort**: Return early with reason
+
+---
 
 ## Receiving Invocations via Agent Registry
 

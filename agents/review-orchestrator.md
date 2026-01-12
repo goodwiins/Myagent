@@ -22,6 +22,8 @@ tools:
   - goodflows_queue_next
   - goodflows_queue_complete
   - goodflows_stats
+  - goodflows_resolve_linear_team
+  - goodflows_preflight_check
   # GoodFlows MCP tools (MANDATORY tracking)
   - goodflows_start_work
   - goodflows_track_file
@@ -31,6 +33,7 @@ tools:
   - goodflows_get_tracking_summary
   # Linear MCP tools (issue management)
   - linear_list_teams
+  - linear_list_issues
   - linear_create_issue
   - linear_update_issue
   - linear_list_issue_labels
@@ -175,8 +178,41 @@ git rev-parse --is-inside-work-tree
 | CodeRabbit CLI | `which coderabbit` | Error: Cannot proceed |
 | Git repository | `git rev-parse` | Error: Not a git repo |
 | Linear API | `list_teams` call | Error: Fix credentials |
+| **Linear Team** | Resolve team name | Error: Team not found |
 | Serena MCP | Memory read test | Warning: Limited features |
 | Uncommitted changes | `git status` | Warning: Nothing to review |
+
+### CRITICAL: Resolve Linear Team Early
+
+**Before Phase 3, you MUST resolve the Linear team name:**
+
+```javascript
+// In Phase 0, resolve the team and cache it
+const teams = await linear_list_teams();
+if (teams.length === 0) {
+  return { error: "No Linear teams found. Check LINEAR_API_KEY." };
+}
+
+// If user specified a team, find it; otherwise use first team
+const targetTeam = options.team 
+  ? teams.find(t => t.key === options.team || t.name === options.team || t.id === options.team)
+  : teams[0];
+
+if (!targetTeam) {
+  return { 
+    error: `Team "${options.team}" not found. Available: ${teams.map(t => `${t.name} (${t.key})`).join(", ")}` 
+  };
+}
+
+// Store resolved team in session context for issue-creator
+goodflows_session_set_context({ 
+  sessionId, 
+  path: "linear.team", 
+  value: { id: targetTeam.id, name: targetTeam.name, key: targetTeam.key }
+});
+```
+
+This ensures `issue-creator` receives a validated team name, not just a key.
 
 ### Error Handling for Prerequisites
 
@@ -193,6 +229,79 @@ flowchart TD
     H -->|Yes| J[Proceed to Phase 1]
     I --> J
 ```
+
+## MANDATORY: Pre-flight Check (Before Creating Issues)
+
+**CRITICAL: Before Phase 3 (Create Issues), you MUST run a preflight check to detect conflicts with existing Linear issues.**
+
+### Step 1: Fetch Linear Issues and Run Check
+
+```javascript
+// After gathering findings in Phase 2, before creating issues:
+const linearIssues = await linear_list_issues({ team: resolvedTeamName, limit: 100 });
+
+const preflight = await goodflows_preflight_check({
+  action: "create_issue",
+  findings: sortedFindings,
+  sessionId: sessionId,
+  team: resolvedTeamName,
+  linearIssues: linearIssues
+});
+```
+
+### Step 2: Handle Preflight Results
+
+**If `preflight.status === "clear"`:**
+- Proceed to Phase 3 with all findings
+
+**If `preflight.status === "conflicts_found"`:**
+
+Display conflicts to user:
+```
+⚠️ CONFLICTS DETECTED
+
+Found ${preflight.summary.conflicts} potential conflicts with existing Linear issues:
+
+${preflight.conflictSummary.map(c => `
+  ${c.index}. ${c.finding}
+     → Matches: [${c.matchedIssue}] ${c.matchedTitle}
+     → Type: ${c.matchType} (${c.similarity} similar)
+     → Status: ${c.issueStatus}
+     → URL: ${c.issueUrl}
+     → Recommendation: ${c.recommendation}
+`).join('\n')}
+
+What would you like to do?
+```
+
+**ASK USER for decision using the prompt options:**
+- **Skip conflicts**: Only process `preflight.clear` findings (${preflight.summary.clear} items)
+- **Link to existing**: Add comments to existing issues instead of creating new
+- **Force create**: Create anyway (will add "potential-duplicate" label)
+- **Abort**: Stop workflow entirely
+
+### Step 3: Record Decision in Session
+
+```javascript
+goodflows_session_set_context({
+  sessionId,
+  path: "preflight.decision",
+  value: {
+    decision: userChoice,  // "skip" | "link" | "force" | "abort"
+    conflictsSkipped: preflight.summary.conflicts,
+    timestamp: Date.now()
+  }
+});
+```
+
+### Step 4: Execute Based on Decision
+
+- **If "skip"**: Pass only `preflight.clear` to issue-creator
+- **If "link"**: For each conflict, call `linear_create_comment()` on existing issue
+- **If "force"**: Pass all findings but add "potential-duplicate" label
+- **If "abort"**: Call `goodflows_complete_work({ success: false, reason: "user_aborted" })`
+
+---
 
 ## Phase 1: Execute Review
 
@@ -362,7 +471,8 @@ registry.endSession({ totalIssues: createdIssues.length });
 ```json
 {
   "findings": [...],
-  "team": "GOO",
+  "team": "Goodwiinz",
+  "teamId": "258482bf-b6bd-41f7-9859-80d4856c0615",
   "options": {
     "group_by_file": true,
     "check_duplicates": true
@@ -370,6 +480,9 @@ registry.endSession({ totalIssues: createdIssues.length });
   "sessionId": "session_xxx"
 }
 ```
+
+**IMPORTANT:** Always pass the resolved `team` name (not key) and `teamId` from Phase 0.
+Read from session context: `goodflows_session_get_context({ sessionId, path: "linear.team" })`
 
 ### Expected Output
 

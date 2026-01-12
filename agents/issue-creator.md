@@ -12,6 +12,8 @@ tools:
   - goodflows_session_resume
   - goodflows_session_get_context
   - goodflows_session_set_context
+  - goodflows_resolve_linear_team
+  - goodflows_preflight_check
   # GoodFlows MCP tools (MANDATORY tracking)
   - goodflows_start_work
   - goodflows_track_issue
@@ -20,10 +22,10 @@ tools:
   - goodflows_get_tracking_summary
   # Linear MCP tools
   - linear_list_teams
+  - linear_list_issues
   - linear_create_issue
   - linear_list_issue_labels
   - linear_get_issue
-  - linear_search_issues
   # Serena MCP tools (memory) - optional
   - serena_read_memory
   - serena_write_memory
@@ -94,6 +96,127 @@ flowchart TD
     F -->|Yes| H[Proceed with creation]
     G --> H
 ```
+
+## CRITICAL: Team Resolution (MUST DO FIRST)
+
+**The team parameter in inputs may be a key (e.g., "GOO") or name (e.g., "Goodwiinz").**
+
+**ALWAYS resolve the team before creating issues:**
+
+```javascript
+// Step 1: ALWAYS call list_teams first to get actual team names
+const teams = await linear_list_teams();
+
+// Step 2: Find matching team (by key prefix, name, or ID)
+const inputTeam = invocation.input.team; // Could be "GOO", "Goodwiinz", or UUID
+const resolvedTeam = teams.find(t => 
+  t.key === inputTeam ||           // Match by key (GOO)
+  t.name === inputTeam ||          // Match by name (Goodwiinz)
+  t.id === inputTeam ||            // Match by UUID
+  t.name.toLowerCase().includes(inputTeam.toLowerCase())
+);
+
+if (!resolvedTeam) {
+  // ABORT - don't try to create issues with invalid team
+  return {
+    status: "failed",
+    error: `Team not found: "${inputTeam}". Available teams: ${teams.map(t => t.name).join(", ")}`
+  };
+}
+
+// Step 3: Use resolvedTeam.name for all create_issue calls
+const teamName = resolvedTeam.name; // Use this, NOT the input
+```
+
+### Why This Matters
+
+| Input | What Linear Needs | Result Without Resolution |
+|-------|-------------------|---------------------------|
+| `"GOO"` | `"Goodwiinz"` | Issues silently fail |
+| `"goo"` | `"Goodwiinz"` | Team not found error |
+| UUID | `"Goodwiinz"` | May work but fragile |
+
+### Verification After Creation
+
+**ALWAYS verify issues were actually created:**
+
+```javascript
+// After each create_issue call, verify it exists
+const created = await linear_create_issue({ team: teamName, title: "...", ... });
+
+// Verify by fetching it back
+const verified = await linear_get_issue({ id: created.identifier });
+if (!verified || verified.id !== created.id) {
+  // Log failure and retry or queue
+  goodflows_track_issue({ issueId: null, action: "failed", reason: "verification failed" });
+}
+```
+
+## MANDATORY: Pre-flight Check (Before Creating Any Issue)
+
+**CRITICAL: Before creating issues, you MUST check for conflicts with existing Linear issues.**
+
+### Step 1: Run Preflight Check
+
+```javascript
+// Get Linear issues for comparison (may be cached from orchestrator)
+const linearIssues = await linear_list_issues({ team: teamName, limit: 100 });
+
+const preflight = await goodflows_preflight_check({
+  action: "create_issue",
+  findings: findings,
+  sessionId: sessionId,
+  team: teamName,
+  linearIssues: linearIssues
+});
+```
+
+### Step 2: Handle Results
+
+**If `preflight.status === "conflicts_found"`:**
+
+Display conflicts and ask user:
+```
+⚠️ Found ${preflight.summary.conflicts} conflicts with existing issues:
+
+${preflight.conflictSummary.map(c => 
+  `• [${c.matchedIssue}] ${c.matchedTitle} (${c.similarity} match)`
+).join('\n')}
+
+Options:
+1. Skip conflicts - Create only ${preflight.summary.clear} non-conflicting issues
+2. Link to existing - Add comments to existing issues
+3. Force create - Create all (add duplicate warning)
+4. Abort - Stop issue creation
+```
+
+### Step 3: Execute Based on Decision
+
+```javascript
+if (userDecision === 'skip') {
+  // Only create issues for preflight.clear findings
+  findingsToCreate = preflight.clear;
+} else if (userDecision === 'link') {
+  // For each conflict, add comment to existing issue
+  for (const conflict of preflight.conflicts) {
+    await linear_create_comment({
+      issueId: conflict.bestMatch.issue.id,
+      body: `Related finding detected:\n\n**File:** ${conflict.finding.file}\n**Description:** ${conflict.finding.description}`
+    });
+    goodflows_track_issue({ issueId: conflict.bestMatch.issue.id, action: "linked" });
+  }
+  findingsToCreate = preflight.clear;
+} else if (userDecision === 'force') {
+  // Create all, but add warning label
+  findingsToCreate = findings;
+  additionalLabels = ['potential-duplicate'];
+} else {
+  // Abort
+  return { status: 'aborted', reason: 'user_cancelled' };
+}
+```
+
+---
 
 ## Your Responsibilities
 
@@ -456,13 +579,17 @@ If Linear API is unavailable, write to local queue:
       "severity": "critical"
     }
   ],
-  "team": "GOO",
+  "team": "Goodwiinz",
+  "teamId": "258482bf-b6bd-41f7-9859-80d4856c0615",
   "options": {
     "group_by_file": true,
     "auto_assign": false
   }
 }
 ```
+
+**Note:** The orchestrator SHOULD pass both `team` (name) and `teamId` (UUID) after resolving.
+If only `team` is provided and it looks like a key (e.g., "GOO"), you MUST resolve it first.
 
 ### Output Contract (to orchestrator)
 
