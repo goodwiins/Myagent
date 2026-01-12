@@ -1,0 +1,84 @@
+{
+  "id": "session_1768199679563_ae456019",
+  "state": "created",
+  "metadata": {
+    "trigger": "test",
+    "branch": null,
+    "user": null,
+    "config": {}
+  },
+  "timestamps": {
+    "created": "2026-01-12T06:34:39.563Z",
+    "started": null,
+    "updated": "2026-01-12T06:34:39.564Z",
+    "completed": null
+  },
+  "context": {
+    "findings": {},
+    "issues": {},
+    "fixes": {
+      "modified": [
+        {
+          "file": "src/test-file.ts",
+          "timestamp": "2026-01-12T06:34:39.564Z"
+        }
+      ]
+    },
+    "errors": [],
+    "custom": {}
+  },
+  "invocations": [],
+  "events": [
+    {
+      "type": "context_set",
+      "data": {
+        "path": "fixes.modified",
+        "valueType": "array[1]",
+        "agent": "unknown"
+      },
+      "timestamp": "2026-01-12T06:34:39.564Z"
+    },
+    {
+      "type": "file_tracked",
+      "data": {
+        "path": "src/test-file.ts",
+        "action": "modified"
+      },
+      "timestamp": "2026-01-12T06:34:39.564Z"
+    }
+  ],
+  "checkpoints": [],
+  "stats": {
+    "agentsInvoked": 0,
+    "findingsProcessed": 0,
+    "issuesCreated": 0,
+    "fixesApplied": 1,
+    "errorsEncountered": 0
+  },
+  "tracking": {
+    "files": {
+      "created": [],
+      "modified": [
+        {
+          "path": "src/test-file.ts",
+          "timestamp": "2026-01-12T06:34:39.564Z"
+        }
+      ],
+      "deleted": []
+    },
+    "issues": {
+      "created": [],
+      "fixed": [],
+      "skipped": [],
+      "failed": []
+    },
+    "findings": [],
+    "work": [],
+    "currentWork": null,
+    "plans": {
+      "active": null,
+      "completed": [],
+      "history": []
+    }
+  }
+}

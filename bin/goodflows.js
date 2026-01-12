@@ -837,8 +837,8 @@ ${colors.yellow}Press Ctrl+C to stop the loop${colors.reset}
       }
     });
 
-    // Keep process alive
-    await new Promise(() => {});
+    // Keep process alive (intentionally never resolves)
+    await new Promise(() => { /* keep alive */ });
 
   } else {
     // Interval mode

@@ -32,7 +32,7 @@ async function main() {
 
     // Determine finding type from labels
     const labels = (issue.labels?.nodes || issue.labels || []).map(l =>
-      (typeof l === 'string' ? l : l.name).toLowerCase()
+      (typeof l === 'string' ? l : l.name).toLowerCase(),
     );
 
     let type = 'potential_issue';

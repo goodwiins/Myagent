@@ -242,17 +242,27 @@ session.completeWork({ success: true });
 
 ### LLM/IDE Handoff
 
-Switch seamlessly between Claude, GPT-4, Gemini, or any LLM:
+Switch seamlessly between Claude, GPT-4, Gemini, or any LLM while preserving full context.
 
+**1. Export from current environment (e.g. CLI):**
 ```javascript
-// In Claude/Cursor - export state
-goodflows_export_handoff()
-goodflows_generate_resume_prompt({ style: 'detailed' })
+// Exports session state, findings, and runs pre-handoff hook
+const handoff = goodflows_export_handoff();
 
-// In GPT-4/VS Code - resume work
-goodflows_session_resume({ sessionId: 'session_xxx' })
-goodflows_get_tracking_summary()
+// Generates a prompt to paste into the next LLM
+goodflows_generate_resume_prompt({ style: 'detailed' });
 ```
+
+**2. Import into new environment (e.g. IDE):**
+```javascript
+// Restores session, findings, and runs post-handoff hook (npm install, etc.)
+goodflows_import_handoff({ content: <PASTE_JSON_HERE> });
+```
+
+**Hooks System:**
+GoodFlows supports hooks to validate state during handoff:
+- `bin/hooks/pre-handoff.js`: Runs before export (e.g., checks for uncommitted changes).
+- `bin/hooks/post-handoff.js`: Runs after import (e.g., verifies dependencies).
 
 ## Priority Mapping
 

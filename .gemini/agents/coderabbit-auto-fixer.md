@@ -1,13 +1,13 @@
 ---
 name: coderabbit-auto-fixer
 description: Use this agent to automatically fix issues identified by CodeRabbit reviews. This agent reads the proposed fixes, applies them safely, verifies the changes work, and updates Linear issue status. Call this agent after creating Linear issues from a review, or use /fix-linear <issue-id> to fix a specific issue.
-model: opus
+model: gemini-1.5-pro
 color: orange
 tools:
-  # Standard Claude tools
-  - Bash
-  - Read
-  - Edit
+  # Standard Gemini tools
+  - run_shell_command
+  - read_file
+  - replace
   # GoodFlows MCP tools (patterns, session, context)
   - goodflows_pattern_recommend
   - goodflows_pattern_record_success

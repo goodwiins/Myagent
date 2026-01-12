@@ -1,7 +1,7 @@
 ---
 name: issue-creator
 description: Use this agent to create well-structured Linear issues from code review findings. This agent specializes in parsing CodeRabbit output and creating detailed, actionable Linear issues with proper categorization, labels, and priority. Call this agent when you have review findings that need to be tracked in Linear.
-model: haiku
+model: gemini-1.5-flash
 color: blue
 tools:
   # GoodFlows MCP tools (deduplication, session)

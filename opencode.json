@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "goodflows": {
+      "type": "local",
+      "command": ["node", "/Users/goodwiinz/development/Myagent/bin/mcp-server.js"],
+      "enabled": true,
+      "timeout": 10000
+    },
+    "serena": {
+      "type": "local",
+      "command": ["/Users/goodwiinz/.local/bin/uvx", "--from", "git+https://github.com/oraios/serena", "serena", "start-mcp-server", "--context", "ide", "--project", "/Users/goodwiinz/development/Myagent"],
+      "enabled": true,
+      "timeout": 60000
+    },
+    "linear": {
+      "type": "local",
+      "command": ["npx", "-y", "mcp-remote", "https://mcp.linear.app/mcp"],
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}

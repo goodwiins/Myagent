@@ -38,20 +38,105 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync } from 'fs';
 
 import { ContextStore } from '../lib/context-store.js';
 import { SessionContextManager } from '../lib/session-context.js';
 import { PatternTracker } from '../lib/pattern-tracker.js';
-import { PriorityQueue, PRIORITY, TYPE_TO_PRIORITY } from '../lib/priority-queue.js';
+import { PriorityQueue } from '../lib/priority-queue.js';
+import { PlanExecutor } from '../lib/plan-executor.js';
+import { ContextFileManager } from '../lib/context-files.js';
+import { parseTask, validateTask, generateTaskPrompt } from '../lib/xml-task-parser.js';
 
-// Initialize GoodFlows components
-const contextStore = new ContextStore({ basePath: '.goodflows/context' });
-const patternTracker = new PatternTracker({ basePath: '.goodflows/context/patterns' });
+// ─────────────────────────────────────────────────────────────
+// Working Directory Resolution
+// ─────────────────────────────────────────────────────────────
 
-// Active sessions and queues (in-memory for current process)
+/**
+ * Get the project working directory from args, env, or cwd
+ * Priority: --project arg > GOODFLOWS_PROJECT env > cwd (if .git exists) > home dir
+ */
+function resolveWorkingDirectory() {
+  // Check for --project argument
+  const projectArgIndex = process.argv.indexOf('--project');
+  if (projectArgIndex !== -1 && process.argv[projectArgIndex + 1]) {
+    const projectDir = process.argv[projectArgIndex + 1];
+    if (existsSync(projectDir)) {
+      return projectDir;
+    }
+  }
+
+  // Check for GOODFLOWS_PROJECT environment variable
+  if (process.env.GOODFLOWS_PROJECT && existsSync(process.env.GOODFLOWS_PROJECT)) {
+    return process.env.GOODFLOWS_PROJECT;
+  }
+
+  // Check if current working directory is a valid project (has .git)
+  const cwd = process.cwd();
+  if (existsSync(join(cwd, '.git')) || existsSync(join(cwd, 'package.json'))) {
+    return cwd;
+  }
+
+  // Fall back to home directory with .goodflows
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
+  return homeDir;
+}
+
+const workingDirectory = resolveWorkingDirectory();
+const goodflowsBasePath = join(workingDirectory, '.goodflows');
+
+// Ensure base directory exists
+try {
+  if (!existsSync(goodflowsBasePath)) {
+    mkdirSync(goodflowsBasePath, { recursive: true });
+  }
+} catch (e) {
+  console.error(`Warning: Could not create ${goodflowsBasePath}: ${e.message}`);
+}
+
+// Change to working directory so relative paths work
+try {
+  process.chdir(workingDirectory);
+} catch (e) {
+  console.error(`Warning: Could not change to ${workingDirectory}: ${e.message}`);
+}
+
+// Initialize GoodFlows components with safe paths
+let contextStore, patternTracker, contextFileManager;
+
+try {
+  contextStore = new ContextStore({ basePath: join(goodflowsBasePath, 'context') });
+} catch (e) {
+  console.error(`Warning: ContextStore init failed: ${e.message}`);
+  contextStore = { query: () => [], addFinding: () => ({ added: false }), getStats: () => ({}) };
+}
+
+try {
+  patternTracker = new PatternTracker({ basePath: join(goodflowsBasePath, 'context', 'patterns') });
+} catch (e) {
+  console.error(`Warning: PatternTracker init failed: ${e.message}`);
+  patternTracker = { recommend: () => [], getStats: () => ({}) };
+}
+
+try {
+  // ContextFileManager expects the parent dir (it adds .goodflows internally)
+  contextFileManager = new ContextFileManager({ basePath: workingDirectory });
+} catch (e) {
+  console.error(`Warning: ContextFileManager init failed: ${e.message}`);
+  contextFileManager = { read: () => ({}), write: () => ({}), status: () => ({}) };
+}
+
+// Active sessions, queues, and plan executor (in-memory for current process)
 const activeSessions = new Map();
 const activeQueues = new Map();
+
+let planExecutor;
+try {
+  planExecutor = new PlanExecutor({ basePath: join(goodflowsBasePath, 'context', 'plans') });
+} catch (e) {
+  console.error(`Warning: PlanExecutor init failed: ${e.message}`);
+  planExecutor = { createPlan: () => ({}), execute: () => ({}), getStatus: () => ({}) };
+}
 
 // Auto-index configuration (loaded from disk if exists)
 let autoIndexConfig = {
@@ -61,11 +146,11 @@ let autoIndexConfig = {
 };
 
 // Load existing auto-index config
-const autoIndexConfigPath = join(process.cwd(), '.goodflows', 'auto-index.json');
+const autoIndexConfigPath = join(goodflowsBasePath, 'auto-index.json');
 if (existsSync(autoIndexConfigPath)) {
   try {
     autoIndexConfig = JSON.parse(readFileSync(autoIndexConfigPath, 'utf-8'));
-  } catch (e) {
+  } catch {
     // Use defaults
   }
 }
@@ -98,7 +183,7 @@ function detectProjectInfo() {
       info.author = pkg.author || null;
       info.license = pkg.license || null;
       info.repository = pkg.repository || null;
-    } catch (e) {
+    } catch {
       // Ignore parse errors
     }
   }
@@ -140,7 +225,7 @@ function detectGitHubInfo() {
       const gitConfig = readFileSync(gitConfigPath, 'utf-8');
 
       // Parse remote origin URL
-      const remoteMatch = gitConfig.match(/\[remote "origin"\][^\[]*url\s*=\s*(.+)/m);
+      const remoteMatch = gitConfig.match(/\[remote "origin"\][^[]*url\s*=\s*(.+)/m);
       if (remoteMatch) {
         const remoteUrl = remoteMatch[1].trim();
         info.remote = remoteUrl;
@@ -148,8 +233,8 @@ function detectGitHubInfo() {
         // Parse GitHub URL (supports https and ssh formats)
         // https://github.com/owner/repo.git
         // git@github.com:owner/repo.git
-        const httpsMatch = remoteUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
-        const sshMatch = remoteUrl.match(/github\.com:([^\/]+)\/([^\/\.]+)/);
+        const httpsMatch = remoteUrl.match(/github\.com\/([^/]+)\/([^/.]+)/);
+        const sshMatch = remoteUrl.match(/github\.com:([^/]+)\/([^/.]+)/);
 
         if (httpsMatch) {
           info.owner = httpsMatch[1];
@@ -161,7 +246,7 @@ function detectGitHubInfo() {
           info.url = `https://github.com/${info.owner}/${info.repo}`;
         }
       }
-    } catch (e) {
+    } catch {
       // Ignore read errors
     }
   }
@@ -175,7 +260,7 @@ function detectGitHubInfo() {
       if (branchMatch) {
         info.branch = branchMatch[1];
       }
-    } catch (e) {
+    } catch {
       // Ignore read errors
     }
   }
@@ -232,7 +317,7 @@ const server = new Server(
     capabilities: {
       tools: {},
     },
-  }
+  },
 );
 
 // Define all GoodFlows tools
@@ -606,6 +691,32 @@ Returns:
     },
   },
   {
+    name: 'goodflows_import_handoff',
+    description: `Import a GoodFlows context handoff from another environment.
+
+Restores session state, findings, and project context.
+Use this when picking up work started in another tool (e.g. CLI -> IDE).
+
+Effects:
+- Restores session files to .goodflows/context/sessions/
+- Restores findings to context store
+- Runs post-handoff hooks (e.g. npm install)`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        content: {
+          type: 'string',
+          description: 'The JSON content string returned by goodflows_export_handoff',
+        },
+        sessionId: {
+          type: 'string',
+          description: 'Optional: Force a specific session ID for the import',
+        },
+      },
+      required: ['content'],
+    },
+  },
+  {
     name: 'goodflows_generate_resume_prompt',
     description: `Generate a prompt for another LLM to resume work.
 
@@ -690,7 +801,7 @@ When enabled, findings are automatically indexed when:
         sources: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Sources to auto-index: linear, coderabbit, fixes'
+          description: 'Sources to auto-index: linear, coderabbit, fixes',
         },
         sessionId: { type: 'string', description: 'Session to attach auto-indexed findings to' },
       },
@@ -811,6 +922,317 @@ Example: { "sessionId": "...", "result": { "success": true, "endpoints": 5 } }`,
         sessionId: { type: 'string', description: 'Session ID' },
       },
       required: ['sessionId'],
+    },
+  },
+
+  // ========== Plan Execution Tools ==========
+  {
+    name: 'goodflows_plan_create',
+    description: `Create an execution plan from a complex task.
+
+Automatically splits complex tasks into max 3 subtasks, each executed in a fresh subagent context.
+This prevents context degradation by ensuring each subtask gets a full 200k token window.
+
+Examples:
+- { "task": "Review codebase, fix security issues, add tests", "sessionId": "..." }
+- { "task": "Refactor auth module and update documentation", "sessionId": "...", "maxSubtasks": 2 }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Complex task description' },
+        sessionId: { type: 'string', description: 'Parent session ID' },
+        maxSubtasks: { type: 'number', description: 'Maximum subtasks (default: 3, max: 3)' },
+        priorityThreshold: { type: 'number', description: 'Only include subtasks at or above this priority (1-4)' },
+        context: { type: 'object', description: 'Additional context to pass to subtasks' },
+      },
+      required: ['task', 'sessionId'],
+    },
+  },
+  {
+    name: 'goodflows_plan_execute',
+    description: `Start executing a plan.
+
+By default runs asynchronously - returns immediately with plan ID.
+Use goodflows_plan_status to monitor progress. Walk away and come back to completed work.
+
+Example: { "planId": "plan_xxx" }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Plan ID to execute' },
+        async: { type: 'boolean', description: 'Run asynchronously (default: true)' },
+      },
+      required: ['planId'],
+    },
+  },
+  {
+    name: 'goodflows_plan_status',
+    description: `Get current plan status and progress.
+
+Shows:
+- Overall plan status (pending, running, completed, partial, failed, cancelled)
+- Progress counts (completed, running, pending, failed, blocked subtasks)
+- Individual subtask statuses
+
+Use this to monitor async plan execution.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Plan ID' },
+      },
+      required: ['planId'],
+    },
+  },
+  {
+    name: 'goodflows_plan_subtask_result',
+    description: 'Get the result of a specific completed subtask',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Plan ID' },
+        subtaskId: { type: 'string', description: 'Subtask ID' },
+      },
+      required: ['planId', 'subtaskId'],
+    },
+  },
+  {
+    name: 'goodflows_plan_cancel',
+    description: `Cancel a running plan.
+
+Completed subtasks are preserved. Pending subtasks are marked as skipped.
+Use this to stop execution if something goes wrong.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planId: { type: 'string', description: 'Plan ID' },
+        reason: { type: 'string', description: 'Cancellation reason' },
+      },
+      required: ['planId'],
+    },
+  },
+
+  // ========== Context File Tools ==========
+  {
+    name: 'goodflows_context_file_read',
+    description: `Read a structured context file (PROJECT, ROADMAP, STATE, PLAN, SUMMARY, ISSUES).
+
+These files provide persistent context for Claude agents:
+- PROJECT.md: Project vision (always loaded, 2K token limit)
+- ROADMAP.md: Goals and milestones (3K token limit)
+- STATE.md: Session memory across contexts (1.5K token limit)
+- PLAN.md: Current atomic task in XML format (1K token limit)
+- SUMMARY.md: Execution history (5K token limit)
+- ISSUES.md: Deferred work queue (2K token limit)`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          enum: ['PROJECT', 'ROADMAP', 'STATE', 'PLAN', 'SUMMARY', 'ISSUES'],
+          description: 'Context file type to read',
+        },
+      },
+      required: ['file'],
+    },
+  },
+  {
+    name: 'goodflows_context_file_write',
+    description: `Write to a structured context file. Enforces size limits.
+
+Size limits (in tokens):
+- PROJECT: 2000
+- ROADMAP: 3000
+- STATE: 1500
+- PLAN: 1000
+- SUMMARY: 5000
+- ISSUES: 2000`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          enum: ['PROJECT', 'ROADMAP', 'STATE', 'PLAN', 'SUMMARY', 'ISSUES'],
+          description: 'Context file type to write',
+        },
+        content: { type: 'string', description: 'Content to write' },
+        allowOversize: { type: 'boolean', description: 'Allow exceeding size limit (default: false)' },
+      },
+      required: ['file', 'content'],
+    },
+  },
+  {
+    name: 'goodflows_context_file_status',
+    description: 'Get status of all context files (sizes, limits, health score)',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'goodflows_context_file_init',
+    description: 'Initialize context file structure with templates. Creates .goodflows/ directory and all context files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        force: { type: 'boolean', description: 'Overwrite existing files (default: false)' },
+      },
+    },
+  },
+  {
+    name: 'goodflows_state_update',
+    description: `Update STATE.md with new information. Handles structured updates.
+
+Updates can include:
+- session: { id, started, trigger }
+- position: Current work position text
+- decision: { decision, rationale }
+- nextContext: Context for next session`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        session: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            started: { type: 'string' },
+            trigger: { type: 'string' },
+          },
+        },
+        position: { type: 'string', description: 'Current work position' },
+        decision: {
+          type: 'object',
+          properties: {
+            decision: { type: 'string' },
+            rationale: { type: 'string' },
+          },
+        },
+        nextContext: { type: 'string', description: 'Context for next session' },
+      },
+    },
+  },
+  {
+    name: 'goodflows_summary_add',
+    description: 'Add an execution entry to SUMMARY.md. Auto-archives old entries.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task: { type: 'string', description: 'Task name' },
+        status: { type: 'string', enum: ['success', 'partial', 'failed'], description: 'Execution status' },
+        changes: { type: 'array', items: { type: 'string' }, description: 'List of changes made' },
+        verification: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              passed: { type: 'boolean' },
+            },
+          },
+        },
+        notes: { type: 'string', description: 'Additional notes' },
+      },
+      required: ['task', 'status'],
+    },
+  },
+  {
+    name: 'goodflows_plan_parse',
+    description: `Parse the XML task definition from PLAN.md.
+
+Returns structured task object with:
+- name, type, context, scope, action, verify, done, tracking
+
+Also validates the task and provides warnings/suggestions.`,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'goodflows_plan_generate_prompt',
+    description: 'Generate an agent prompt from the parsed PLAN.md task',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'goodflows_plan_create_xml',
+    description: `Create an XML task template for PLAN.md.
+
+Generates structured XML task definition with:
+- name, type, context, scope, action, verify, done, tracking
+
+Example input:
+{
+  "name": "Add user authentication",
+  "type": "implementation",
+  "why": "Users need to log in securely",
+  "files": [{ "path": "src/auth.ts", "action": "create" }],
+  "action": "1. Create auth module\\n2. Add JWT handling",
+  "checks": [{ "type": "command", "value": "npm test" }],
+  "done": "Users can log in and receive JWT token"
+}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Task name' },
+        type: {
+          type: 'string',
+          enum: ['implementation', 'fix', 'refactor', 'review'],
+          description: 'Task type (default: implementation)',
+        },
+        why: { type: 'string', description: 'Why this task matters' },
+        dependsOn: { type: 'string', description: 'Prerequisites' },
+        session: { type: 'string', description: 'Session ID' },
+        files: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              path: { type: 'string' },
+              action: { type: 'string', enum: ['create', 'modify', 'delete'] },
+            },
+          },
+          description: 'Files to create/modify/delete',
+        },
+        boundaries: { type: 'string', description: 'What NOT to touch' },
+        action: { type: 'string', description: 'Step-by-step instructions' },
+        checks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['command', 'manual', 'file_exists'] },
+              value: { type: 'string' },
+            },
+          },
+          description: 'Verification checks',
+        },
+        done: { type: 'string', description: 'Definition of done' },
+        trackGoodflows: { type: 'boolean', description: 'Enable GoodFlows tracking (default: true)' },
+        writeToPlan: { type: 'boolean', description: 'Write to PLAN.md (default: false)' },
+      },
+      required: ['name', 'action', 'done'],
+    },
+  },
+  {
+    name: 'goodflows_autoload_context',
+    description: `Get auto-load context for agent prompts.
+
+Returns combined content from context files based on options:
+- Always loads: PROJECT.md, STATE.md
+- On planning: Also loads ROADMAP.md, ISSUES.md
+- On task: Also loads PLAN.md
+- For orchestrators: Also loads SUMMARY.md
+
+Respects a 6K token budget for auto-loaded context.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agentType: { type: 'string', description: 'Agent type (e.g., orchestrator, fixer)' },
+        isPlanning: { type: 'boolean', description: 'Whether in planning phase' },
+        hasTask: { type: 'boolean', description: 'Whether there is an active task' },
+      },
     },
   },
 ];
@@ -1203,6 +1625,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // ========== LLM Handoff Handlers ==========
       case 'goodflows_export_handoff': {
+        // Run pre-handoff hook if exists
+        const preHookPath = join(process.cwd(), 'bin', 'hooks', 'pre-handoff.js');
+        if (existsSync(preHookPath)) {
+          try {
+            const { execSync } = await import('child_process');
+            // Execute the hook, capturing output but not failing the export if it warns
+            execSync(`node "${preHookPath}"`, { stdio: 'inherit' });
+          } catch (e) {
+            console.error('Warning: Pre-handoff hook failed:', e.message);
+          }
+        }
+
         const projectContext = getProjectContext();
         const includeFindings = args.includeFindings !== false;
         const findingsLimit = args.findingsLimit || 20;
@@ -1221,6 +1655,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               completedWork: session.getCompletedWork(),
               tracking: session.getTrackingSummary(),
               recentEvents: session.getEvents().slice(-10),
+              // Include raw context for full restoration
+              rawContext: session.session?.context,
             });
           }
         } else {
@@ -1235,6 +1671,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               completedWork: session.getCompletedWork(),
               tracking: session.getTrackingSummary(),
               recentEvents: session.getEvents().slice(-10),
+              rawContext: session.session?.context,
             });
           }
         }
@@ -1249,6 +1686,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             description: f.description,
             status: f.status,
             issueId: f.issueId,
+            lines: f.lines,
+            severity: f.severity,
+            _hash: f._hash, // Keep hash for stable dedup
           }));
         }
 
@@ -1276,6 +1716,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           resumeInstructions: [
             'Configure GoodFlows MCP server in your IDE',
             'Run: goodflows_project_info() to verify connection',
+            'Run: goodflows_import_handoff({ content: <JSON> }) to restore state',
             sessions.length > 0
               ? `Resume session: goodflows_session_resume({ sessionId: "${sessions[0]?.id}" })`
               : 'Start new session: goodflows_session_start({ trigger: "handoff-resume" })',
@@ -1286,6 +1727,97 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{ type: 'text', text: JSON.stringify(handoff, null, 2) }],
         };
+      }
+
+      case 'goodflows_import_handoff': {
+        try {
+          const content = typeof args.content === 'string' 
+            ? JSON.parse(args.content) 
+            : args.content;
+
+          // 1. Restore sessions
+          const restoredSessions = [];
+          if (content.sessions && Array.isArray(content.sessions)) {
+            const { writeFileSync, mkdirSync } = await import('fs');
+            const { join } = await import('path');
+            const sessionsDir = join(goodflowsBasePath, 'context', 'sessions');
+            mkdirSync(sessionsDir, { recursive: true });
+
+            for (const sessionData of content.sessions) {
+              const sessionId = args.sessionId || sessionData.id;
+              
+              // Reconstruct full session object compatible with SessionContextManager
+              const fullSession = {
+                id: sessionId,
+                state: sessionData.state || 'running',
+                metadata: sessionData.metadata || {},
+                timestamps: {
+                  created: new Date().toISOString(), // Or from metadata if available
+                  started: new Date().toISOString(),
+                  updated: new Date().toISOString(),
+                },
+                context: sessionData.rawContext || {}, // Restore full context
+                invocations: [], // We don't strictly need history for basic functionality
+                events: sessionData.recentEvents || [],
+                checkpoints: [],
+                stats: sessionData.stats || {},
+                tracking: {
+                  files: { created: [], modified: [], deleted: [] },
+                  issues: { created: [], fixed: [], skipped: [], failed: [] },
+                  findings: [],
+                  work: sessionData.completedWork || [],
+                  currentWork: sessionData.currentWork || null,
+                  plans: { active: null, completed: [], history: [] },
+                },
+              };
+
+              const sessionPath = join(sessionsDir, `${sessionId}.json`);
+              writeFileSync(sessionPath, JSON.stringify(fullSession, null, 2));
+              restoredSessions.push(sessionId);
+            }
+          }
+
+          // 2. Restore findings (if any)
+          let findingsRestored = 0;
+          if (content.findings && Array.isArray(content.findings)) {
+            for (const finding of content.findings) {
+              // Add finding (dedup is handled by contextStore)
+              contextStore.addFinding(finding);
+              findingsRestored++;
+            }
+          }
+
+          // 3. Run post-handoff hook
+          const postHookPath = join(process.cwd(), 'bin', 'hooks', 'post-handoff.js');
+          let hookResult = 'skipped';
+          if (existsSync(postHookPath)) {
+            try {
+              const { execSync } = await import('child_process');
+              execSync(`node "${postHookPath}"`, { stdio: 'inherit' });
+              hookResult = 'success';
+            } catch (e) {
+              hookResult = `failed: ${e.message}`;
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              sessionsRestored: restoredSessions,
+              findingsRestored,
+              hookStatus: hookResult,
+              nextSteps: restoredSessions.length > 0 
+                ? `Resume with: goodflows_session_resume({ sessionId: "${restoredSessions[0]}" })`
+                : 'Start new session: goodflows_session_start()',
+            }, null, 2) }],
+          };
+
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: `Import failed: ${error.message}` }, null, 2) }],
+            isError: true,
+          };
+        }
       }
 
       case 'goodflows_generate_resume_prompt': {
@@ -1640,7 +2172,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
           const { dirname } = await import('path');
           mkdirSync(dirname(configPath), { recursive: true });
           writeFileSync(configPath, JSON.stringify(autoIndexConfig, null, 2));
-        } catch (e) {
+        } catch {
           // Ignore write errors
         }
 
@@ -1776,6 +2308,305 @@ await goodflows_context_query({ status: "open", limit: 10 })
         };
       }
 
+      // ========== Plan Execution Handlers ==========
+      case 'goodflows_plan_create': {
+        try {
+          // Get session manager if session is active
+          const session = activeSessions.get(args.sessionId);
+          if (session) {
+            planExecutor.sessionManager = session;
+          }
+
+          const plan = await planExecutor.createPlan(args.task, args.sessionId, {
+            maxSubtasks: args.maxSubtasks,
+            priorityThreshold: args.priorityThreshold,
+            context: args.context,
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              planId: plan.id,
+              status: plan.status,
+              complexity: plan.originalTask.complexity,
+              subtaskCount: plan.subtasks.length,
+              subtasks: plan.subtasks.map(st => ({
+                id: st.id,
+                sequence: st.sequence,
+                priority: st.priority,
+                description: st.description.slice(0, 100),
+                agentType: st.agentType,
+                dependencies: st.dependencies,
+              })),
+              message: `Plan created with ${plan.subtasks.length} subtasks. Use goodflows_plan_execute to start.`,
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_execute': {
+        try {
+          const session = activeSessions.get(args.sessionId);
+          if (session) {
+            planExecutor.sessionManager = session;
+          }
+
+          const result = await planExecutor.execute(args.planId, {
+            async: args.async !== false,
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_status': {
+        const status = planExecutor.getStatus(args.planId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(status, null, 2) }],
+        };
+      }
+
+      case 'goodflows_plan_subtask_result': {
+        const result = planExecutor.getSubtaskResult(args.planId, args.subtaskId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case 'goodflows_plan_cancel': {
+        try {
+          const result = await planExecutor.cancel(args.planId, args.reason);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ========== Context File Handlers ==========
+      case 'goodflows_context_file_read': {
+        try {
+          const result = await contextFileManager.read(args.file);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_context_file_write': {
+        try {
+          const result = await contextFileManager.write(args.file, args.content, {
+            allowOversize: args.allowOversize,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_context_file_status': {
+        try {
+          const result = await contextFileManager.status();
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_context_file_init': {
+        try {
+          const result = await contextFileManager.init({ force: args.force });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_state_update': {
+        try {
+          const result = await contextFileManager.updateState(args);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_summary_add': {
+        try {
+          const result = await contextFileManager.addSummary({
+            task: args.task,
+            status: args.status,
+            changes: args.changes,
+            verification: args.verification,
+            notes: args.notes,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_parse': {
+        try {
+          const planFile = await contextFileManager.read('PLAN');
+          if (!planFile.exists || !planFile.content) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({ error: 'PLAN.md not found or empty' }, null, 2) }],
+              isError: true,
+            };
+          }
+          const parsed = parseTask(planFile.content);
+          const validation = validateTask(parsed);
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              ...parsed,
+              validation,
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_generate_prompt': {
+        try {
+          const planFile = await contextFileManager.read('PLAN');
+          if (!planFile.exists || !planFile.content) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({ error: 'PLAN.md not found or empty' }, null, 2) }],
+              isError: true,
+            };
+          }
+          const parsed = parseTask(planFile.content);
+          if (!parsed.valid) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid task', details: parsed }, null, 2) }],
+              isError: true,
+            };
+          }
+          const prompt = generateTaskPrompt(parsed);
+          return {
+            content: [{ type: 'text', text: prompt }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_create_xml': {
+        try {
+          const { createTaskXml } = await import('../lib/xml-task-parser.js');
+
+          const xml = createTaskXml({
+            type: args.type || 'implementation',
+            name: args.name,
+            why: args.why,
+            dependsOn: args.dependsOn,
+            session: args.session,
+            files: args.files || [],
+            boundaries: args.boundaries,
+            action: args.action,
+            checks: args.checks || [],
+            done: args.done,
+            trackGoodflows: args.trackGoodflows !== false,
+          });
+
+          // Optionally write to PLAN.md
+          if (args.writeToPlan) {
+            await contextFileManager.write('PLAN', xml, { allowOversize: true });
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                success: true,
+                writtenTo: '.goodflows/PLAN.md',
+                xml,
+              }, null, 2) }],
+            };
+          }
+
+          return {
+            content: [{ type: 'text', text: xml }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_autoload_context': {
+        try {
+          const result = await contextFileManager.getAutoLoadContext({
+            agentType: args.agentType,
+            isPlanning: args.isPlanning,
+            hasTask: args.hasTask,
+          });
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              tokens: result.tokens,
+              filesLoaded: result.filesLoaded,
+              content: result.content,
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
       default:
         return {
           content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool: ${name}` }, null, 2) }],
@@ -1794,7 +2625,13 @@ await goodflows_context_query({ status: "open", limit: 10 })
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('GoodFlows MCP Server running on stdio');
+
+  // Only log startup info if not in quiet mode (some MCP clients are sensitive to stderr)
+  if (!process.env.GOODFLOWS_QUIET) {
+    console.error(`GoodFlows MCP Server running on stdio`);
+    console.error(`  Working directory: ${workingDirectory}`);
+    console.error(`  GoodFlows path: ${goodflowsBasePath}`);
+  }
 }
 
 main().catch((error) => {

@@ -3,10 +3,12 @@
   "version": "1.2.0",
   "description": "AI-powered code review automation with CodeRabbit, Linear, and Claude. Multi-agent system for automated code review workflows.",
   "main": "bin/goodflows.js",
+  "types": "types/index.d.ts",
   "type": "module",
   "bin": {
     "goodflows": "./bin/goodflows.js",
-    "goodflows-mcp-server": "./bin/mcp-server.js"
+    "goodflows-mcp-server": "./bin/mcp-server.js",
+    "goodflows-install": "./bin/install.sh"
   },
   "scripts": {
     "start": "node bin/goodflows.js",
@@ -17,13 +19,18 @@
     "install:windsurf": "node bin/goodflows.js install --cli windsurf",
     "postinstall": "node scripts/postinstall.js",
     "prepublishOnly": "npm run test",
-    "test": "node scripts/test.js",
-    "lint": "echo 'Linting...' && exit 0"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest --coverage",
+    "test:legacy": "node scripts/test.js",
+    "lint": "eslint lib/ bin/ --fix",
+    "lint:check": "eslint lib/ bin/"
   },
   "files": [
     "agents/",
     "bin/",
     "lib/",
+    "types/",
     "scripts/",
     "templates/",
     "config.json",
@@ -90,5 +97,11 @@
     "@anthropic-ai/claude-agent-sdk": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@vitest/coverage-v8": "^3.2.4",
+    "eslint": "^9.39.2",
+    "vitest": "^3.2.4"
   }
 }

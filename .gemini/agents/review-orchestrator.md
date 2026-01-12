@@ -1,14 +1,14 @@
 ---
 name: review-orchestrator
 description: Use this agent to orchestrate the complete code review lifecycle - from running CodeRabbit reviews to creating Linear issues and tracking fixes. Call this agent when you want automated review-to-issue workflow, after completing a feature, before creating PRs, or when you need comprehensive code quality analysis with issue tracking.
-model: sonnet
+model: gemini-1.5-pro
 color: cyan
 tools:
-  # Standard Claude tools
-  - Bash
-  - Read
-  - Grep
-  - Glob
+  # Standard Gemini tools
+  - run_shell_command
+  - read_file
+  - search_file_content
+  - glob
   # GoodFlows MCP tools (context, session, queue)
   - goodflows_context_query
   - goodflows_context_add
