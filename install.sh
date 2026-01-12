@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Myagent Installation Script
+# GoodFlows Installation Script
 # Installs AI code review agents for various CLI tools
 
 set -e
@@ -31,7 +31,7 @@ usage() {
     cat << EOF
 Usage: ./install.sh [OPTIONS]
 
-Install Myagent AI code review agents for your preferred CLI tool.
+Install GoodFlows AI code review agents for your preferred CLI tool.
 
 OPTIONS:
     -h, --help          Show this help message
@@ -328,7 +328,7 @@ create_aider_config() {
     local config_dir="$(dirname "$install_dir")"
 
     cat > "$config_dir/.aider.conf.yml" << 'EOF'
-# Myagent Aider Configuration
+# GoodFlows Aider Configuration
 
 # Model settings
 model: claude-3-5-sonnet-20241022
@@ -416,7 +416,7 @@ EOF
 
 # Main installation function
 install() {
-    print_info "Starting Myagent installation..."
+    print_info "Starting GoodFlows installation..."
     print_info "Mode: $INSTALL_MODE, Target CLI: $TARGET_CLI"
 
     # Get installation directory
@@ -458,7 +458,7 @@ install() {
 
 # Uninstall function
 uninstall() {
-    print_info "Uninstalling Myagent..."
+    print_info "Uninstalling GoodFlows..."
 
     local dirs_to_remove=(
         "./.claude/agents"

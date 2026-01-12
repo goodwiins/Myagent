@@ -1,11 +1,11 @@
-# Myagent Makefile
+# GoodFlows Makefile
 # AI Code Review Automation Suite
 
 .PHONY: help install install-global install-claude install-cursor install-continue install-aider uninstall test clean
 
 # Default target
 help:
-	@echo "Myagent - AI Code Review Automation Suite"
+	@echo "GoodFlows - AI Code Review Automation Suite"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
@@ -125,7 +125,7 @@ init-memory:
 	@echo "Memory files initialized"
 
 version:
-	@echo "Myagent v1.0.0"
+	@echo "GoodFlows v1.2.0"
 	@echo "Agents:"
 	@grep -h "^name:" *.md 2>/dev/null | sed 's/name: /  - /'
 
