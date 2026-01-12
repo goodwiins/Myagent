@@ -25,6 +25,9 @@
 - **🧠 Memory & Learning** - Remembers past findings and fix patterns for smarter automation
 - **⚡ Multi-Model Optimization** - Uses the right Claude model for each task (Opus/Sonnet/Haiku)
 - **🔌 Multi-CLI Support** - Works with Claude Code, Cursor, Continue, Aider, Windsurf
+- **🌐 LLM-Agnostic** - Seamlessly switch between Claude, GPT-4, Gemini, or any model
+- **📡 MCP Server** - Full Model Context Protocol support for IDE integration
+- **📊 Easy Tracking** - Simple helpers to track files, issues, and work progress
 
 ## 📦 Installation
 
@@ -193,6 +196,64 @@ This creates `goodflows.config.json`:
 | [Aider](https://aider.chat) | `goodflows install -c aider` | ✅ Full Support |
 | [Windsurf](https://codeium.com/windsurf) | `goodflows install -c windsurf` | ✅ Full Support |
 
+## 📡 MCP Server
+
+GoodFlows includes a full MCP (Model Context Protocol) server for IDE integration.
+
+### Setup
+
+Add to your Claude Code settings (`~/.claude/settings.json`):
+
+```json
+{
+  "mcpServers": {
+    "goodflows": {
+      "command": "npx",
+      "args": ["goodflows-mcp-server"]
+    }
+  }
+}
+```
+
+### Key MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `goodflows_session_start` | Start a workflow session |
+| `goodflows_track_file` | Track file operations |
+| `goodflows_track_issue` | Track issue progress |
+| `goodflows_start_work` | Start a work unit |
+| `goodflows_complete_work` | Complete work and get summary |
+| `goodflows_project_info` | Get project/GitHub context |
+| `goodflows_export_handoff` | Export state for LLM handoff |
+| `goodflows_generate_resume_prompt` | Generate prompt for another LLM |
+
+### Easy Tracking
+
+```javascript
+// Track work with automatic stats
+session.startWork('fix-issue', { issueId: 'GOO-53' });
+session.trackFile('src/auth.ts', 'created');
+session.trackFile('src/utils.ts', 'modified');
+session.trackIssue('GOO-53', 'fixed');
+session.completeWork({ success: true });
+// Summary auto-derived: { filesCreated: 1, filesModified: 1, issuesFixed: 1 }
+```
+
+### LLM/IDE Handoff
+
+Switch seamlessly between Claude, GPT-4, Gemini, or any LLM:
+
+```javascript
+// In Claude/Cursor - export state
+goodflows_export_handoff()
+goodflows_generate_resume_prompt({ style: 'detailed' })
+
+// In GPT-4/VS Code - resume work
+goodflows_session_resume({ sessionId: 'session_xxx' })
+goodflows_get_tracking_summary()
+```
+
 ## 📊 Priority Mapping
 
 | Finding Type | Linear Labels | Priority |
@@ -218,7 +279,8 @@ GoodFlows includes comprehensive error handling:
 goodflows/
 ├── package.json              # NPM package config
 ├── bin/
-│   └── goodflows.js          # CLI entry point
+│   ├── goodflows.js          # CLI entry point
+│   └── mcp-server.js         # MCP server for IDE integration
 ├── agents/
 │   ├── review-orchestrator.md
 │   ├── issue-creator.md
@@ -226,18 +288,15 @@ goodflows/
 ├── lib/
 │   ├── index.js              # Library exports
 │   ├── context-store.js      # Context management
-│   ├── context-index.js      # Context indexing
-│   └── pattern-tracker.js    # Fix pattern tracking
-├── scripts/
-│   ├── postinstall.js        # Post-install setup
-│   └── test.js               # Test runner
-├── .serena/
-│   └── memories/             # Agent memory storage
-│       ├── coderabbit_findings.md
-│       └── auto_fix_patterns.md
+│   ├── session-context.js    # Session & tracking management
+│   ├── pattern-tracker.js    # Fix pattern tracking
+│   └── priority-queue.js     # Priority queue for findings
+├── .goodflows/               # GoodFlows context storage
+│   └── context/
+│       ├── sessions/         # Session data
+│       ├── findings/         # Indexed findings
+│       └── patterns/         # Fix patterns
 ├── config.json               # Default configuration
-├── install.sh                # Shell installer script
-├── Makefile                  # Build automation
 ├── CLAUDE.md                 # Project documentation
 ├── LICENSE                   # MIT License
 └── README.md

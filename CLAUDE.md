@@ -438,7 +438,205 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude/
 | `goodflows_pattern_record_failure` | Record failed fix |
 | `goodflows_queue_create` | Create priority queue |
 | `goodflows_queue_next` | Get next priority item |
-| `goodflows_stats` | Get store statistics |
+| `goodflows_stats` | Get store statistics (includes project/GitHub info) |
+| `goodflows_project_info` | Get project name, version, and GitHub repo info |
+| `goodflows_export_handoff` | Export state for LLM/IDE handoff |
+| `goodflows_generate_resume_prompt` | Generate prompt for another LLM to resume |
+| `goodflows_sync_linear` | Sync issues from Linear to context store |
+| `goodflows_auto_index` | Configure automatic indexing of findings |
+| `goodflows_track_file` | Track a file operation (created/modified/deleted) |
+| `goodflows_track_files` | Track multiple files at once |
+| `goodflows_track_issue` | Track an issue operation (created/fixed/skipped/failed) |
+| `goodflows_track_finding` | Track a finding |
+| `goodflows_start_work` | Start a work unit (groups related tracking) |
+| `goodflows_complete_work` | Complete work unit and get summary |
+| `goodflows_get_tracking_summary` | Get summary of all tracked items |
+
+### Easy Tracking
+
+GoodFlows provides easy tracking helpers that automatically update stats and context.
+
+**Basic Tracking:**
+```javascript
+// Track files
+session.trackFile('src/auth.ts', 'created');
+session.trackFile('src/utils.ts', 'modified');
+session.trackFiles(['a.ts', 'b.ts', 'c.ts'], 'created');
+
+// Track issues
+session.trackIssue('GOO-53', 'created', { title: 'Fix auth' });
+session.trackIssue('GOO-53', 'fixed');
+session.trackIssue('GOO-54', 'skipped', { reason: 'duplicate' });
+
+// Track findings
+session.trackFinding({ type: 'security', file: 'auth.ts', description: '...' });
+```
+
+**Work Units (recommended for complex tasks):**
+```javascript
+// Start work unit - groups all subsequent tracking
+session.startWork('fix-issue', { issueId: 'GOO-53', title: 'Thread Export' });
+
+// Track work (automatically linked to work unit)
+session.trackFile('src/export/index.ts', 'created');
+session.trackFile('src/export/formats/md.ts', 'created');
+session.trackIssue('GOO-53', 'fixed');
+
+// Complete work - calculates totals automatically
+const summary = session.completeWork({ success: true, endpoints: 5 });
+// summary = { filesCreated: 2, issuesFixed: 1, duration: 45, success: true, endpoints: 5 }
+```
+
+**Benefits:**
+- Auto-updates `stats` (issuesCreated, fixesApplied, etc.)
+- Auto-updates `context` for backwards compatibility
+- Deduplicates tracked items
+- Groups work into logical units
+- `_derived` summary is now accurate
+
+### Project & GitHub Awareness
+
+GoodFlows automatically detects project and GitHub information:
+
+**Auto-detected from:**
+- `package.json` - project name, version, description
+- `.git/config` - GitHub owner, repo, remote URL
+- `.git/HEAD` - current branch
+
+**Available via:**
+```javascript
+// Get project info
+goodflows_project_info()
+// Returns: { project: { name, version, ... }, github: { owner, repo, url, branch, ... } }
+
+// Stats now include project info
+goodflows_stats()
+// Returns: { project: { name, version }, github: { owner, repo, branch, url }, context: {...}, ... }
+```
+
+**Auto-populated in sessions:**
+```javascript
+// Sessions automatically include project context
+goodflows_session_start({ trigger: 'code-review' })
+// Session metadata includes: project, projectVersion, github, githubOwner, githubRepo, branch
+```
+
+### LLM/IDE Handoff
+
+GoodFlows is **LLM-agnostic** - switch seamlessly between Claude, GPT-4, Gemini, or any model. Switch between Cursor, VS Code, Windsurf, or any IDE with MCP support.
+
+**Export current state for handoff:**
+```javascript
+goodflows_export_handoff()
+// Returns: { project, github, sessions, findings, resumeInstructions }
+
+// Or export specific session
+goodflows_export_handoff({ sessionId: "session_xxx" })
+```
+
+**Generate a resume prompt for another LLM:**
+```javascript
+// Concise prompt (default)
+goodflows_generate_resume_prompt({ sessionId: "session_xxx" })
+
+// Detailed prompt with full context
+goodflows_generate_resume_prompt({ sessionId: "session_xxx", style: "detailed" })
+
+// Technical/JSON format
+goodflows_generate_resume_prompt({ sessionId: "session_xxx", style: "technical" })
+```
+
+**Handoff workflow:**
+
+1. **In current IDE (Claude/Cursor):**
+   ```javascript
+   // Export state before switching
+   goodflows_export_handoff()
+   // Or generate a prompt
+   goodflows_generate_resume_prompt({ style: "detailed" })
+   ```
+
+2. **In new IDE (GPT-4/VS Code):**
+   - Configure GoodFlows MCP server
+   - Paste the generated prompt, or:
+   ```javascript
+   // Verify connection
+   goodflows_project_info()
+
+   // Resume session
+   goodflows_session_resume({ sessionId: "session_xxx" })
+
+   // Check progress
+   goodflows_get_tracking_summary()
+   ```
+
+**What gets preserved:**
+- Project and GitHub context
+- Session state and metadata
+- Tracking progress (files, issues, findings)
+- Work units and summaries
+- Open findings and issues
+
+### Auto-Indexing
+
+GoodFlows supports automatic indexing of findings from multiple sources:
+
+#### Linear Sync
+
+Sync issues from Linear to the context store. Two methods:
+
+**Method 1: Using Linear MCP (Recommended)**
+```javascript
+// Step 1: Fetch issues via Linear MCP
+const issues = await linear_list_issues({ team: "GOO" })
+
+// Step 2: Sync to GoodFlows context store
+goodflows_sync_linear({ issues: issues })
+```
+
+**Method 2: Direct API (requires LINEAR_API_KEY)**
+```javascript
+// Sync all open issues for a team
+goodflows_sync_linear({ team: "GOO", status: "open" })
+
+// Sync issues with specific labels
+goodflows_sync_linear({ team: "GOO", labels: ["bug", "security"] })
+
+// Sync issues created after a date
+goodflows_sync_linear({ team: "GOO", since: "2024-01-01" })
+```
+
+#### Auto-Index Hook
+
+A PostToolUse hook automatically indexes Linear issues when created via the Linear MCP server. Configure in `.claude/settings.local.json`:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__linear__linear_create_issue",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node /path/to/goodflows/bin/hooks/index-linear-issue.js"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### Enable/Disable Auto-Indexing
+
+```javascript
+// Enable auto-indexing
+goodflows_auto_index({ enabled: true, sources: ["linear", "coderabbit", "fixes"] })
+
+// Disable auto-indexing
+goodflows_auto_index({ enabled: false })
+```
 
 ### Linear MCP Tools
 
