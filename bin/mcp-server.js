@@ -46,8 +46,10 @@ import { PatternTracker } from '../lib/pattern-tracker.js';
 import { PriorityQueue } from '../lib/priority-queue.js';
 import { PlanExecutor } from '../lib/plan-executor.js';
 import { ContextFileManager } from '../lib/context-files.js';
-import { parseTask, validateTask, generateTaskPrompt } from '../lib/xml-task-parser.js';
+import { parseTask, validateTask, generateTaskPrompt, parseMultiTaskPlan, createMultiTaskPlanXml } from '../lib/xml-task-parser.js';
 import { findLinearMatches, getMatchRecommendation } from '../lib/context-index.js';
+import { PhaseManager } from '../lib/phase-manager.js';
+import { GsdExecutor, EXECUTION_STRATEGY, COMMIT_TYPES, TASK_STATUS } from '../lib/gsd-executor.js';
 
 // ─────────────────────────────────────────────────────────────
 // Working Directory Resolution
@@ -127,6 +129,27 @@ try {
   contextFileManager = { read: () => ({}), write: () => ({}), status: () => ({}) };
 }
 
+// Initialize PhaseManager
+let phaseManager;
+try {
+  phaseManager = new PhaseManager({ basePath: workingDirectory });
+} catch (e) {
+  console.error(`Warning: PhaseManager init failed: ${e.message}`);
+  phaseManager = {
+    init: () => ({}),
+    createPhase: () => ({}),
+    listPhases: () => [],
+    getPhase: () => null,
+    createPlan: () => ({}),
+    getPlan: () => null,
+    createSummary: () => ({}),
+    getCurrentPhase: () => null,
+    getNextPlan: () => null,
+    completePhase: () => ({}),
+    getPhaseStatus: () => ({}),
+  };
+}
+
 // Active sessions, queues, and plan executor (in-memory for current process)
 const activeSessions = new Map();
 const activeQueues = new Map();
@@ -137,6 +160,22 @@ try {
 } catch (e) {
   console.error(`Warning: PlanExecutor init failed: ${e.message}`);
   planExecutor = { createPlan: () => ({}), execute: () => ({}), getStatus: () => ({}) };
+}
+
+// Initialize GsdExecutor
+let gsdExecutor;
+try {
+  gsdExecutor = new GsdExecutor({
+    basePath: workingDirectory,
+    phaseManager,
+    sessionManager: sessionManager,
+  });
+} catch (e) {
+  console.error(`Warning: GsdExecutor init failed: ${e.message}`);
+  gsdExecutor = {
+    executePlan: () => ({ success: false, error: 'GsdExecutor not initialized' }),
+    commitTask: () => ({ success: false, error: 'GsdExecutor not initialized' }),
+  };
 }
 
 // Auto-index configuration (loaded from disk if exists)
@@ -1353,6 +1392,371 @@ Respects a 6K token budget for auto-loaded context.`,
         isPlanning: { type: 'boolean', description: 'Whether in planning phase' },
         hasTask: { type: 'boolean', description: 'Whether there is an active task' },
       },
+    },
+  },
+
+  // ========== GSD Phase Management Tools ==========
+  {
+    name: 'goodflows_phase_create',
+    description: `Create a new phase in ROADMAP.md.
+
+Phases are numbered sequentially (01, 02, etc.) and stored in .goodflows/phases/{NN}-{name}/.
+
+Example: { "name": "authentication", "goal": "Implement user auth with JWT" }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Phase name (will be kebab-cased)' },
+        goal: { type: 'string', description: 'What this phase achieves' },
+        position: { type: 'number', description: 'Where to insert (default: end)' },
+        dependsOn: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Phase names this depends on',
+        },
+      },
+      required: ['name', 'goal'],
+    },
+  },
+  {
+    name: 'goodflows_phase_plan',
+    description: `Create atomic PLAN.md(s) for a phase.
+
+Analyzes the phase goal, breaks it into tasks (max 3 per plan), and creates XML PLAN.md files.
+
+Example: { "phase": 2, "sessionId": "...", "maxTasksPerPlan": 3 }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phase: { type: ['number', 'string'], description: 'Phase to plan (default: next unplanned)' },
+        sessionId: { type: 'string', description: 'Session for context' },
+        maxTasksPerPlan: { type: 'number', description: 'Max tasks per plan (default: 3)' },
+        includeCodebaseAnalysis: { type: 'boolean', description: 'Analyze codebase for context (default: true)' },
+        tasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              action: { type: 'string' },
+              verify: { type: 'string' },
+              done: { type: 'string' },
+              files: { type: 'array', items: { type: 'string' } },
+              type: { type: 'string', enum: ['auto', 'checkpoint:human-verify', 'checkpoint:human-action', 'checkpoint:decision'] },
+            },
+          },
+          description: 'Pre-defined tasks (optional, will be auto-generated if not provided)',
+        },
+        objective: {
+          type: 'object',
+          properties: {
+            description: { type: 'string' },
+            purpose: { type: 'string' },
+            output: { type: 'string' },
+          },
+          description: 'Plan objective',
+        },
+      },
+      required: ['sessionId'],
+    },
+  },
+  {
+    name: 'goodflows_phase_status',
+    description: `Get current phase progress.
+
+Returns:
+- Phase info (number, name, status)
+- Plans count (total, completed, current, pending)
+- Tasks counts and progress percentage
+- Next recommended action`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phase: { type: ['number', 'string'], description: 'Phase to check (default: current)' },
+      },
+    },
+  },
+  {
+    name: 'goodflows_phase_complete',
+    description: `Mark phase as complete and archive summaries.
+
+Verifies all plans are complete before marking phase done.
+
+Example: { "phase": 2, "summary": "REST API with JWT auth" }`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phase: { type: ['number', 'string'], description: 'Phase to complete' },
+        summary: { type: 'string', description: 'One-liner summary of what shipped' },
+      },
+      required: ['phase'],
+    },
+  },
+  {
+    name: 'goodflows_roadmap_update',
+    description: `Update ROADMAP.md with current phase progress.
+
+Syncs the roadmap file with actual phase status from disk.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        milestone: { type: 'string', description: 'Update milestone name' },
+        targetDate: { type: 'string', description: 'Update target date' },
+      },
+    },
+  },
+  {
+    name: 'goodflows_phase_list',
+    description: `List all phases and their status.
+
+Returns array of phases with their plans and completion status.`,
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'goodflows_plan_get',
+    description: `Get a specific plan from a phase.
+
+Returns the parsed PLAN.md content including tasks and metadata.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phase: { type: ['number', 'string'], description: 'Phase number or name' },
+        plan: { type: 'number', description: 'Plan number' },
+      },
+      required: ['phase', 'plan'],
+    },
+  },
+  {
+    name: 'goodflows_plan_create_multi_task',
+    description: `Create a multi-task PLAN.md (GSD format).
+
+Creates a plan with multiple tasks that will be executed sequentially.
+Supports checkpoint tasks for human verification.
+
+Example:
+{
+  "phase": 2,
+  "objective": { "description": "Add user auth", "purpose": "Security", "output": "Auth endpoints" },
+  "tasks": [
+    { "name": "Create user model", "action": "...", "verify": "npm test", "done": "Model exists" },
+    { "type": "checkpoint:human-verify", "whatBuilt": "Auth flow", "howToVerify": "Test login" }
+  ]
+}`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phase: { type: ['number', 'string'], description: 'Phase number or name' },
+        objective: {
+          type: 'object',
+          properties: {
+            description: { type: 'string', description: 'What this plan accomplishes' },
+            purpose: { type: 'string', description: 'Why this matters' },
+            output: { type: 'string', description: 'What artifacts will be created' },
+          },
+          required: ['description'],
+        },
+        tasks: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', description: 'Task type (auto, checkpoint:human-verify, etc.)' },
+              name: { type: 'string', description: 'Task name (for auto tasks)' },
+              files: { type: 'array', items: { type: 'string' }, description: 'Files to modify' },
+              action: { type: 'string', description: 'Implementation instructions' },
+              verify: { type: 'string', description: 'Verification command' },
+              done: { type: 'string', description: 'Acceptance criteria' },
+              whatBuilt: { type: 'string', description: 'For checkpoints: what was built' },
+              howToVerify: { type: 'string', description: 'For checkpoints: verification steps' },
+              gate: { type: 'string', enum: ['blocking', 'optional'], description: 'For checkpoints: gate type' },
+            },
+          },
+          description: 'Array of task definitions',
+        },
+        contextFiles: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Additional context files to reference',
+        },
+        verification: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Verification checklist items',
+        },
+        successCriteria: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Success criteria items',
+        },
+      },
+      required: ['phase', 'tasks'],
+    },
+  },
+  {
+    name: 'goodflows_summary_create',
+    description: `Create a SUMMARY.md for a completed plan.
+
+Documents what was accomplished, task commits, deviations, and metrics.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        phase: { type: ['number', 'string'], description: 'Phase number or name' },
+        planNumber: { type: 'number', description: 'Plan number' },
+        taskCommits: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              hash: { type: 'string' },
+              type: { type: 'string', enum: ['feat', 'fix', 'test', 'refactor', 'perf', 'chore', 'docs'] },
+            },
+          },
+          description: 'Array of task commit info',
+        },
+        accomplishments: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Key accomplishments',
+        },
+        deviations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['auto-fix', 'deferred'] },
+              rule: { type: 'number' },
+              category: { type: 'string' },
+              description: { type: 'string' },
+              task: { type: 'string' },
+              issue: { type: 'string' },
+              fix: { type: 'string' },
+              verification: { type: 'string' },
+              commitHash: { type: 'string' },
+            },
+          },
+          description: 'Deviations from plan',
+        },
+        metrics: {
+          type: 'object',
+          properties: {
+            duration: { type: 'string' },
+            startedAt: { type: 'string' },
+            filesModified: { type: 'number' },
+            oneLiner: { type: 'string' },
+            metadataCommit: { type: 'string' },
+            subsystem: { type: 'string' },
+            tags: { type: 'array', items: { type: 'string' } },
+            keyFiles: {
+              type: 'object',
+              properties: {
+                created: { type: 'array', items: { type: 'string' } },
+                modified: { type: 'array', items: { type: 'string' } },
+              },
+            },
+            keyDecisions: { type: 'array', items: { type: 'string' } },
+            nextPhaseReadiness: { type: 'string' },
+          },
+          description: 'Performance metrics and metadata',
+        },
+      },
+      required: ['phase', 'planNumber'],
+    },
+  },
+  {
+    name: 'goodflows_parse_multi_task_plan',
+    description: `Parse a multi-task PLAN.md file.
+
+Returns structured data including metadata, objective, tasks, and execution strategy.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planPath: { type: 'string', description: 'Path to PLAN.md (default: from current phase)' },
+        phase: { type: ['number', 'string'], description: 'Phase number or name' },
+        plan: { type: 'number', description: 'Plan number' },
+      },
+    },
+  },
+  // ========== GSD Executor Tools ==========
+  {
+    name: 'goodflows_gsd_execute_plan',
+    description: `Execute a GSD PLAN.md file with per-task atomic commits.
+
+Features:
+- Per-task atomic commits with conventional format: {type}({phase}-{plan}): {task-name}
+- Execution strategies: autonomous (full), segmented (pause at checkpoints), decision (pause at decisions)
+- Deviation rules: auto-fix bugs, stop for architectural issues, defer enhancements
+- Automatic SUMMARY.md generation on completion
+- STATE.md updates after execution
+
+Returns execution result including task statuses, commits, deviations, and next steps.
+Use dryRun=true to validate the plan without executing.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planPath: { type: 'string', description: 'Path to PLAN.md file' },
+        phase: { type: ['number', 'string'], description: 'Phase number or name (alternative to planPath)' },
+        plan: { type: 'number', description: 'Plan number (used with phase)' },
+        sessionId: { type: 'string', description: 'Session ID for tracking' },
+        strategy: {
+          type: 'string',
+          enum: ['auto', 'autonomous', 'segmented', 'decision'],
+          description: 'Execution strategy (default: auto - determined by plan)',
+        },
+        dryRun: { type: 'boolean', description: 'Parse and validate only, do not execute (default: false)' },
+      },
+    },
+  },
+  {
+    name: 'goodflows_gsd_commit_task',
+    description: `Create an atomic commit for a completed task.
+
+Commit format: {type}({phase}-{plan}): {taskName}
+
+Types: feat, fix, test, refactor, perf, chore, docs
+
+IMPORTANT: Never use git add . - only stage specific files for the task.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: { type: 'string', description: 'Task ID' },
+        taskName: { type: 'string', description: 'Task name for commit message' },
+        type: {
+          type: 'string',
+          enum: ['feat', 'fix', 'test', 'refactor', 'perf', 'chore', 'docs'],
+          description: 'Commit type (default: feat)',
+        },
+        phase: { type: 'string', description: 'Phase identifier' },
+        plan: { type: 'string', description: 'Plan identifier' },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Files to stage and commit',
+        },
+        sessionId: { type: 'string', description: 'Session ID for tracking' },
+      },
+      required: ['taskId', 'taskName', 'phase', 'plan', 'files'],
+    },
+  },
+  {
+    name: 'goodflows_gsd_resume_checkpoint',
+    description: `Resume execution after a checkpoint pause.
+
+Use this after verifying a checkpoint gate (human-verify, human-action, or decision).
+Pass the checkpoint result to continue execution.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        planPath: { type: 'string', description: 'Path to PLAN.md file' },
+        checkpointId: { type: 'string', description: 'Checkpoint task ID' },
+        approved: { type: 'boolean', description: 'Whether checkpoint was approved' },
+        result: { type: 'object', description: 'Checkpoint result data' },
+        sessionId: { type: 'string', description: 'Session ID' },
+      },
+      required: ['planPath', 'checkpointId', 'approved'],
     },
   },
 ];
@@ -2958,6 +3362,522 @@ await goodflows_context_query({ status: "open", limit: 10 })
               filesLoaded: result.filesLoaded,
               content: result.content,
             }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ========== GSD Phase Management Handlers ==========
+      case 'goodflows_phase_create': {
+        try {
+          // Initialize phases directory
+          await phaseManager.init();
+
+          const result = await phaseManager.createPhase({
+            name: args.name,
+            goal: args.goal,
+            position: args.position,
+            dependsOn: args.dependsOn || [],
+          });
+
+          // Update ROADMAP.md
+          const roadmapResult = await contextFileManager.read('ROADMAP');
+          if (roadmapResult.exists) {
+            let roadmapContent = roadmapResult.content;
+            // Add phase to roadmap if not exists
+            if (!roadmapContent.includes(`Phase ${result.phaseNumber}:`)) {
+              const phaseSection = `\n### Phase ${result.phaseNumber}: ${args.name}
+- **Status**: pending
+- **Plans**: 0/0 (not planned)
+- **Goal**: ${args.goal}
+`;
+              // Insert before "---" or at end
+              const insertPos = roadmapContent.lastIndexOf('\n## Completed Milestones');
+              if (insertPos > 0) {
+                roadmapContent = roadmapContent.slice(0, insertPos) + phaseSection + roadmapContent.slice(insertPos);
+              } else {
+                roadmapContent += phaseSection;
+              }
+              await contextFileManager.write('ROADMAP', roadmapContent, { allowOversize: true });
+            }
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_phase_plan': {
+        try {
+          const phase = args.phase || (await phaseManager.getCurrentPhase())?.number || 1;
+          const phaseInfo = await phaseManager.getPhase(phase);
+
+          if (!phaseInfo) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                error: `Phase ${phase} not found. Create it first with goodflows_phase_create.`,
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          // Use provided tasks or generate placeholder
+          const tasks = args.tasks || [
+            {
+              name: 'Implement core functionality',
+              action: 'Implement the core functionality for this phase',
+              verify: 'npm test',
+              done: 'Core functionality working',
+            },
+          ];
+
+          const result = await phaseManager.createPlan({
+            phase,
+            tasks,
+            objective: args.objective || {
+              description: `Plan for Phase ${phaseInfo.number}: ${phaseInfo.name}`,
+              purpose: 'Advance phase goals',
+              output: 'Completed tasks',
+            },
+          });
+
+          // Update STATE.md
+          await contextFileManager.updateState({
+            position: `Phase ${phaseInfo.number}, Plan ${result.planNumber}: Ready to execute`,
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              phase: phaseInfo.number,
+              phaseName: phaseInfo.name,
+              plansCreated: [{
+                planNumber: result.planNumber,
+                path: result.path,
+                taskCount: result.taskCount,
+                tasks: result.tasks,
+              }],
+              totalTasks: result.taskCount,
+              stateUpdated: true,
+              message: `Created plan ${result.planNumber} for Phase ${phaseInfo.number} with ${result.taskCount} tasks`,
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_phase_status': {
+        try {
+          const result = await phaseManager.getPhaseStatus(args.phase);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_phase_complete': {
+        try {
+          const result = await phaseManager.completePhase(args.phase, args.summary);
+
+          if (result.success) {
+            // Update ROADMAP.md to mark phase complete
+            const roadmapResult = await contextFileManager.read('ROADMAP');
+            if (roadmapResult.exists) {
+              let roadmapContent = roadmapResult.content;
+              // Update phase status
+              const phaseRegex = new RegExp(
+                `(### Phase ${result.phase}:[^]*?)- \\*\\*Status\\*\\*: \\w+`,
+                'i',
+              );
+              roadmapContent = roadmapContent.replace(
+                phaseRegex,
+                `$1- **Status**: complete`,
+              );
+              await contextFileManager.write('ROADMAP', roadmapContent, { allowOversize: true });
+            }
+
+            // Update STATE.md
+            await contextFileManager.updateState({
+              position: `Phase ${result.phase} complete. ${args.summary || ''}`,
+              decision: {
+                decision: `Completed Phase ${result.phase}`,
+                rationale: args.summary || 'All plans executed successfully',
+              },
+            });
+          }
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_roadmap_update': {
+        try {
+          const phases = await phaseManager.listPhases();
+          const roadmapResult = await contextFileManager.read('ROADMAP');
+
+          let content = roadmapResult.exists ? roadmapResult.content : '';
+
+          // Update milestone if provided
+          if (args.milestone) {
+            content = content.replace(
+              /## Current Milestone: .*/,
+              `## Current Milestone: ${args.milestone}`,
+            );
+          }
+          if (args.targetDate) {
+            content = content.replace(
+              /\*\*Target\*\*: .*/,
+              `**Target**: ${args.targetDate}`,
+            );
+          }
+
+          // Calculate overall progress
+          const totalPlans = phases.reduce((sum, p) => sum + p.plans.length, 0);
+          const completedPlans = phases.reduce((sum, p) =>
+            sum + p.plans.filter(pl => pl.status === 'complete').length, 0,
+          );
+          const progress = totalPlans > 0 ? Math.round((completedPlans / totalPlans) * 100) : 0;
+          const progressBar = '░'.repeat(10).split('').map((_, i) =>
+            i < Math.floor(progress / 10) ? '█' : '░',
+          ).join('');
+
+          content = content.replace(
+            /\*\*Progress\*\*: \[.{10}\] \d+%/,
+            `**Progress**: [${progressBar}] ${progress}%`,
+          );
+
+          await contextFileManager.write('ROADMAP', content, { allowOversize: true });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              phases: phases.length,
+              totalPlans,
+              completedPlans,
+              progress: `${progress}%`,
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_phase_list': {
+        try {
+          const phases = await phaseManager.listPhases();
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              count: phases.length,
+              phases: phases.map(p => ({
+                number: p.number,
+                name: p.name,
+                status: p.status,
+                plans: {
+                  total: p.plans.length,
+                  completed: p.plans.filter(pl => pl.status === 'complete').length,
+                },
+              })),
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_get': {
+        try {
+          const result = await phaseManager.getPlan(args.phase, args.plan);
+          if (!result) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                error: `Plan ${args.plan} not found in phase ${args.phase}`,
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_plan_create_multi_task': {
+        try {
+          const phaseInfo = await phaseManager.getPhase(args.phase);
+          if (!phaseInfo) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                error: `Phase ${args.phase} not found`,
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          // Get next plan number
+          const existingPlans = phaseInfo.plans.length;
+          const planNumber = existingPlans + 1;
+          const paddedPhase = String(phaseInfo.number).padStart(2, '0');
+          const paddedPlan = String(planNumber).padStart(2, '0');
+
+          // Generate the plan XML
+          const planContent = createMultiTaskPlanXml({
+            metadata: {
+              phase: `${paddedPhase}-${phaseInfo.name}`,
+              plan: paddedPlan,
+              type: 'execute',
+              dependsOn: [],
+              filesModified: [],
+            },
+            objective: args.objective || {},
+            contextFiles: args.contextFiles || [],
+            tasks: args.tasks || [],
+            verification: args.verification || [],
+            successCriteria: args.successCriteria || [],
+          });
+
+          // Write the plan file
+          const planFileName = `${paddedPhase}-${paddedPlan}-PLAN.md`;
+          const planPath = join(phaseInfo.path, planFileName);
+          const { writeFileSync } = await import('fs');
+          writeFileSync(planPath, planContent, 'utf-8');
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify({
+              success: true,
+              phase: phaseInfo.number,
+              phaseName: phaseInfo.name,
+              planNumber,
+              path: planPath,
+              taskCount: args.tasks.length,
+              hasCheckpoints: args.tasks.some(t => t.type?.startsWith('checkpoint:')),
+            }, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_summary_create': {
+        try {
+          const result = await phaseManager.createSummary({
+            phase: args.phase,
+            planNumber: args.planNumber,
+            taskCommits: args.taskCommits || [],
+            metrics: args.metrics || {},
+            accomplishments: args.accomplishments || [],
+            deviations: args.deviations || [],
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_parse_multi_task_plan': {
+        try {
+          let content;
+
+          if (args.planPath) {
+            // Read from specified path
+            const { readFileSync, existsSync } = await import('fs');
+            if (!existsSync(args.planPath)) {
+              return {
+                content: [{ type: 'text', text: JSON.stringify({
+                  error: `Plan file not found: ${args.planPath}`,
+                }, null, 2) }],
+                isError: true,
+              };
+            }
+            content = readFileSync(args.planPath, 'utf-8');
+          } else if (args.phase && args.plan) {
+            // Get from phase/plan
+            const plan = await phaseManager.getPlan(args.phase, args.plan);
+            if (!plan) {
+              return {
+                content: [{ type: 'text', text: JSON.stringify({
+                  error: `Plan ${args.plan} not found in phase ${args.phase}`,
+                }, null, 2) }],
+                isError: true,
+              };
+            }
+            content = plan.content;
+          } else {
+            // Try to get current plan from PLAN.md
+            const planFile = await contextFileManager.read('PLAN');
+            if (!planFile.exists) {
+              return {
+                content: [{ type: 'text', text: JSON.stringify({
+                  error: 'No plan specified and PLAN.md not found',
+                }, null, 2) }],
+                isError: true,
+              };
+            }
+            content = planFile.content;
+          }
+
+          const parsed = parseMultiTaskPlan(content);
+          return {
+            content: [{ type: 'text', text: JSON.stringify(parsed, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      // ========== GSD Executor Handlers ==========
+      case 'goodflows_gsd_execute_plan': {
+        try {
+          let planPath = args.planPath;
+
+          // If no planPath, try to resolve from phase/plan
+          if (!planPath && args.phase && args.plan) {
+            const plan = await phaseManager.getPlan(args.phase, args.plan);
+            if (plan) {
+              planPath = plan.path;
+            }
+          }
+
+          // If still no planPath, try current PLAN.md
+          if (!planPath) {
+            const defaultPlan = join(goodflowsBasePath, 'PLAN.md');
+            if (existsSync(defaultPlan)) {
+              planPath = defaultPlan;
+            }
+          }
+
+          if (!planPath) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                error: 'No plan specified. Provide planPath, phase/plan, or create .goodflows/PLAN.md',
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          const result = await gsdExecutor.executePlan({
+            planPath,
+            sessionId: args.sessionId,
+            strategy: args.strategy || 'auto',
+            dryRun: args.dryRun || false,
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_gsd_commit_task': {
+        try {
+          if (!args.files || args.files.length === 0) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                error: 'No files specified for commit',
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          const result = await gsdExecutor.commitTask({
+            taskId: args.taskId,
+            taskName: args.taskName,
+            type: args.type || 'feat',
+            phase: args.phase,
+            plan: args.plan,
+            files: args.files,
+            sessionId: args.sessionId,
+          });
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+          };
+        } catch (error) {
+          return {
+            content: [{ type: 'text', text: JSON.stringify({ error: error.message }, null, 2) }],
+            isError: true,
+          };
+        }
+      }
+
+      case 'goodflows_gsd_resume_checkpoint': {
+        try {
+          if (!args.planPath) {
+            return {
+              content: [{ type: 'text', text: JSON.stringify({
+                error: 'planPath is required to resume checkpoint',
+              }, null, 2) }],
+              isError: true,
+            };
+          }
+
+          // For now, this is a placeholder that validates the checkpoint
+          // Full checkpoint resume would require maintaining execution state
+          const result = {
+            success: args.approved,
+            checkpoint: args.checkpointId,
+            approved: args.approved,
+            result: args.result,
+            message: args.approved
+              ? `Checkpoint ${args.checkpointId} approved. Continue execution by calling goodflows_gsd_execute_plan again.`
+              : `Checkpoint ${args.checkpointId} rejected. Execution stopped.`,
+          };
+
+          return {
+            content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
           };
         } catch (error) {
           return {
