@@ -15,6 +15,7 @@ export { default as phase } from './phase.js';
 export { default as plan } from './plan.js';
 export { default as gsd } from './gsd.js';
 export { default as misc } from './misc.js';
+export { default as sync } from './sync.js';
 
 /**
  * Get all handler modules as an array for registration
@@ -31,6 +32,7 @@ export async function getAllHandlerModules() {
   const plan = await import('./plan.js');
   const gsd = await import('./gsd.js');
   const misc = await import('./misc.js');
+  const sync = await import('./sync.js');
 
   return [
     { module: context.default, category: 'context' },
@@ -42,6 +44,7 @@ export async function getAllHandlerModules() {
     { module: plan.default, category: 'plan' },
     { module: gsd.default, category: 'gsd' },
     { module: misc.default, category: 'misc' },
+    { module: sync.default, category: 'sync' },
   ];
 }
 
@@ -60,6 +63,7 @@ export async function registerAllHandlers(registry) {
   const plan = await import('./plan.js');
   const gsd = await import('./gsd.js');
   const misc = await import('./misc.js');
+  const sync = await import('./sync.js');
 
   registry.registerModule(context.default, 'context');
   registry.registerModule(session.default, 'session');
@@ -70,6 +74,7 @@ export async function registerAllHandlers(registry) {
   registry.registerModule(plan.default, 'plan');
   registry.registerModule(gsd.default, 'gsd');
   registry.registerModule(misc.default, 'misc');
+  registry.registerModule(sync.default, 'sync');
 
   return registry;
 }

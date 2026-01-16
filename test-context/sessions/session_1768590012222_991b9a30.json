@@ -1,0 +1,111 @@
+{
+  "id": "session_1768590012222_991b9a30",
+  "state": "created",
+  "metadata": {
+    "trigger": "test",
+    "branch": null,
+    "user": null,
+    "config": {}
+  },
+  "timestamps": {
+    "created": "2026-01-16T19:00:12.222Z",
+    "started": null,
+    "updated": "2026-01-16T19:00:12.223Z",
+    "completed": null
+  },
+  "context": {
+    "findings": {},
+    "issues": {},
+    "fixes": {},
+    "errors": [],
+    "custom": {},
+    "value": "original"
+  },
+  "invocations": [],
+  "events": [
+    {
+      "type": "context_set",
+      "data": {
+        "path": "value",
+        "valueType": "string",
+        "agent": "unknown"
+      },
+      "timestamp": "2026-01-16T19:00:12.223Z"
+    },
+    {
+      "type": "checkpoint_created",
+      "data": {
+        "checkpointId": "chk_1768590012223",
+        "label": "before_change"
+      },
+      "timestamp": "2026-01-16T19:00:12.223Z"
+    },
+    {
+      "type": "context_set",
+      "data": {
+        "path": "value",
+        "valueType": "string",
+        "agent": "unknown"
+      },
+      "timestamp": "2026-01-16T19:00:12.223Z"
+    },
+    {
+      "type": "rollback",
+      "data": {
+        "checkpointId": "chk_1768590012223",
+        "label": "before_change"
+      },
+      "timestamp": "2026-01-16T19:00:12.223Z"
+    }
+  ],
+  "checkpoints": [
+    {
+      "id": "chk_1768590012223",
+      "label": "before_change",
+      "timestamp": "2026-01-16T19:00:12.223Z",
+      "context": {
+        "findings": {},
+        "issues": {},
+        "fixes": {},
+        "errors": [],
+        "custom": {},
+        "value": "original"
+      },
+      "stats": {
+        "agentsInvoked": 0,
+        "findingsProcessed": 0,
+        "issuesCreated": 0,
+        "fixesApplied": 0,
+        "errorsEncountered": 0
+      }
+    }
+  ],
+  "stats": {
+    "agentsInvoked": 0,
+    "findingsProcessed": 0,
+    "issuesCreated": 0,
+    "fixesApplied": 0,
+    "errorsEncountered": 0
+  },
+  "tracking": {
+    "files": {
+      "created": [],
+      "modified": [],
+      "deleted": []
+    },
+    "issues": {
+      "created": [],
+      "fixed": [],
+      "skipped": [],
+      "failed": []
+    },
+    "findings": [],
+    "work": [],
+    "currentWork": null,
+    "plans": {
+      "active": null,
+      "completed": [],
+      "history": []
+    }
+  }
+}

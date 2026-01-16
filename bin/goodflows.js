@@ -6,11 +6,12 @@
  */
 
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, unlinkSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { ContextStore } from '../lib/context-store.js';
 import { PatternTracker } from '../lib/pattern-tracker.js';
+import { SyncManager } from '../lib/sync-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -105,12 +106,16 @@ function parseArgs(args) {
       case 'stats':
       case 'loop':
       case 'watch':
+      case 'sync':
         options.command = arg;
         break;
       case 'add':
       case 'query':
       case 'export':
       case 'clear':
+      case 'import':
+      case 'merge':
+      case 'status':
         options.subcommand = arg;
         break;
       case '--cli':
@@ -153,6 +158,21 @@ function parseArgs(args) {
       case '-n':
         options.limit = parseInt(args[++i], 10) || 20;
         break;
+      // Sync options
+      case '--llm':
+        options.llm = args[++i];
+        break;
+      case '--role':
+      case '-r':
+        options.role = args[++i];
+        break;
+      case '--message':
+      case '-m':
+        options.message = args[++i];
+        break;
+      case '--strategy':
+        options.strategy = args[++i];
+        break;
     }
   }
 
@@ -187,6 +207,7 @@ ${colors.bold}COMMANDS:${colors.reset}
   init        Initialize configuration in current directory
   list        List available agents
   context     Manage context storage (query, export, clear)
+  sync        Cross-CLI sync (export, import, merge, status)
   migrate     Migrate from legacy markdown memories
   stats       Show context storage statistics
   loop        Run continuous review loop (interval mode)
@@ -209,6 +230,10 @@ ${colors.bold}EXAMPLES:${colors.reset}
   ${colors.cyan}goodflows init${colors.reset}                       # Initialize config
   ${colors.cyan}goodflows context query --type bug${colors.reset}   # Query findings by type
   ${colors.cyan}goodflows context export${colors.reset}             # Export to markdown
+  ${colors.cyan}goodflows sync export --llm claude${colors.reset}   # Export context for other LLMs
+  ${colors.cyan}goodflows sync import --llm gemini${colors.reset}   # Import from another LLM
+  ${colors.cyan}goodflows sync merge${colors.reset}                 # Merge contexts from all LLMs
+  ${colors.cyan}goodflows sync status${colors.reset}                # Show sync status
   ${colors.cyan}goodflows migrate${colors.reset}                    # Migrate legacy memories
   ${colors.cyan}goodflows stats${colors.reset}                      # Show storage statistics
   ${colors.cyan}goodflows loop${colors.reset}                       # Start interval review loop
@@ -748,6 +773,201 @@ ${colors.bold}Patterns:${colors.reset}
   }
 }
 
+// Sync command for cross-CLI collaboration
+function syncCommand(options) {
+  const { subcommand, llm, role, message, strategy } = options;
+
+  const syncManager = new SyncManager({ basePath: process.cwd() });
+
+  switch (subcommand) {
+    case 'export': {
+      if (!llm) {
+        log.error('LLM identifier required. Use: --llm <name>');
+        console.log(`\n${colors.bold}Available LLMs:${colors.reset} ${SyncManager.getKnownLLMs().join(', ')}`);
+        return;
+      }
+
+      log.info(`Exporting context for ${llm}...`);
+
+      // Get context store and session info
+      const store = existsSync('.goodflows/context')
+        ? new ContextStore({ basePath: '.goodflows/context' })
+        : null;
+
+      const findings = store ? store.query({ limit: 50 }) : [];
+
+      try {
+        const result = syncManager.export({
+          llm,
+          role,
+          message,
+          findings,
+          projectContext: {
+            project: { name: basename(process.cwd()) },
+            github: {},
+          },
+        });
+
+        log.success(`Exported to ${result.path}`);
+        console.log(`
+${colors.bold}Export Summary:${colors.reset}
+  LLM:      ${colors.cyan}${result.llm}${colors.reset}
+  Role:     ${result.role}
+  Files:    ${result.stats.trackedFiles}
+  Hash:     ${result.contentHash}
+
+${colors.bold}Next Steps:${colors.reset}
+  Another LLM can import with:
+  ${colors.cyan}goodflows sync import --llm ${llm}${colors.reset}
+`);
+      } catch (error) {
+        log.error(`Export failed: ${error.message}`);
+      }
+      break;
+    }
+
+    case 'import': {
+      if (!llm) {
+        log.error('LLM identifier required. Use: --llm <name>');
+        return;
+      }
+
+      log.info(`Importing context from ${llm}...`);
+
+      try {
+        const result = syncManager.import({ llm });
+
+        log.success(`Imported from ${result.importedFrom}`);
+        console.log(`
+${colors.bold}Import Summary:${colors.reset}
+  From:       ${colors.cyan}${result.importedFrom}${colors.reset}
+  Role:       ${result.role}
+  Exported:   ${result.exportedAt}
+  Findings:   ${result.findings?.length || 0}
+  ${result.message ? `\n${colors.bold}Message:${colors.reset} ${result.message}` : ''}
+
+${colors.bold}Session:${colors.reset}
+  ${result.session ? `ID: ${result.session.id}` : 'No session data'}
+`);
+
+        // Optionally restore findings to context store
+        if (result.findings?.length > 0) {
+          const store = new ContextStore({ basePath: '.goodflows/context' });
+          let added = 0;
+          for (const finding of result.findings) {
+            const res = store.addFinding(finding);
+            if (res.added) added++;
+          }
+          if (added > 0) {
+            console.log(`${colors.green}Imported ${added} new findings to context store${colors.reset}`);
+          }
+        }
+      } catch (error) {
+        log.error(`Import failed: ${error.message}`);
+      }
+      break;
+    }
+
+    case 'merge': {
+      log.info('Merging contexts from all LLMs...');
+
+      try {
+        const result = syncManager.merge({ strategy });
+
+        if (!result.success) {
+          log.error(result.error);
+          return;
+        }
+
+        log.success(`Merged ${result.sourcesCount} sources`);
+        console.log(`
+${colors.bold}Merge Summary:${colors.reset}
+  Sources:    ${result.sources.map(s => s.llm).join(', ')}
+  Strategy:   ${strategy || 'latest-wins'}
+  Sessions:   ${result.stats.sessions}
+  Findings:   ${result.stats.findings}
+  Files:      ${result.stats.filesCreated + result.stats.filesModified} tracked
+
+${result.conflicts ? `${colors.yellow}Conflicts:${colors.reset} ${result.conflicts.length} (see ${result.conflictsPath})` : `${colors.green}No conflicts${colors.reset}`}
+`);
+      } catch (error) {
+        log.error(`Merge failed: ${error.message}`);
+      }
+      break;
+    }
+
+    case 'status': {
+      const result = syncManager.status({ llm });
+
+      console.log(`
+${colors.bold}${colors.cyan}Sync Status${colors.reset}
+
+${colors.bold}Sync Directory:${colors.reset} ${result.syncPath}
+${colors.bold}Available Handoffs:${colors.reset} ${result.available.length}
+`);
+
+      if (result.available.length === 0) {
+        console.log(`${colors.yellow}No sync data available yet.${colors.reset}`);
+        console.log(`\nExport with: ${colors.cyan}goodflows sync export --llm <name>${colors.reset}`);
+      } else {
+        console.log('| LLM | Role | Exported | Message |');
+        console.log('|-----|------|----------|---------|');
+        for (const h of result.available) {
+          const time = h.exportedAt ? new Date(h.exportedAt).toLocaleString() : '-';
+          console.log(`| ${h.llm} | ${h.role || '-'} | ${time} | ${h.message?.slice(0, 30) || '-'} |`);
+        }
+      }
+
+      if (result.sharedState) {
+        console.log(`\n${colors.bold}Shared State:${colors.reset}`);
+        console.log(`  Merged: ${result.sharedState.mergedAt}`);
+        console.log(`  Sources: ${result.sharedState.sources?.map(s => s.llm).join(', ') || '-'}`);
+      }
+
+      if (result.conflicts?.length > 0) {
+        console.log(`\n${colors.yellow}Conflicts:${colors.reset} ${result.conflicts.length} unresolved`);
+      }
+      break;
+    }
+
+    default:
+      console.log(`
+${colors.bold}Sync Commands:${colors.reset}
+
+  ${colors.cyan}goodflows sync export --llm <name>${colors.reset}   Export context for another LLM
+  ${colors.cyan}goodflows sync import --llm <name>${colors.reset}   Import context from another LLM
+  ${colors.cyan}goodflows sync merge${colors.reset}                 Merge all available contexts
+  ${colors.cyan}goodflows sync status${colors.reset}                Show sync status
+
+${colors.bold}Options:${colors.reset}
+  --llm <name>       LLM identifier (claude, gemini, gpt4, copilot, cursor, windsurf)
+  --role <role>      Filter by role (frontend, backend, testing, devops)
+  --message <msg>    Message for receiving LLM
+  --strategy <s>     Merge strategy (latest-wins, manual, theirs, ours)
+
+${colors.bold}Available Roles:${colors.reset}
+  ${colors.green}frontend${colors.reset}  - Components, pages, styles, hooks
+  ${colors.green}backend${colors.reset}   - API, server, database, lib
+  ${colors.green}testing${colors.reset}   - Tests and test configs
+  ${colors.green}devops${colors.reset}    - Docker, CI/CD, scripts
+
+${colors.bold}Workflow Example:${colors.reset}
+
+  ${colors.cyan}# Claude exports backend work${colors.reset}
+  goodflows sync export --llm claude --role backend --message "API ready"
+
+  ${colors.cyan}# Gemini imports and continues${colors.reset}
+  goodflows sync import --llm claude
+
+  ${colors.cyan}# Gemini exports frontend work${colors.reset}
+  goodflows sync export --llm gemini --role frontend
+
+  ${colors.cyan}# Merge all work${colors.reset}
+  goodflows sync merge
+`);
+  }
+}
+
 // Loop/Watch mode for continuous review
 async function loopCommand(options) {
   const mode = options.command === 'watch' ? 'watch' : 'interval';
@@ -999,6 +1219,9 @@ function main() {
       break;
     case 'context':
       contextCommand(options);
+      break;
+    case 'sync':
+      syncCommand(options);
       break;
     case 'migrate':
       migrate();

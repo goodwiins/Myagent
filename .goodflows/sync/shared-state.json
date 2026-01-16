@@ -1,0 +1,138 @@
+{
+  "mergedAt": "2026-01-16T19:01:16.302Z",
+  "sources": [
+    {
+      "llm": "claude",
+      "exportedAt": "2026-01-16T19:00:26.315Z",
+      "role": "backend"
+    }
+  ],
+  "strategy": "latest-wins",
+  "project": {
+    "name": "Myagent"
+  },
+  "github": {},
+  "sessions": [],
+  "findings": [
+    {
+      "type": "potential_issue",
+      "file": "bin/mcp/handlers/plan.js",
+      "description": "Bug: plan.js:286 calls session.getAll() but SessionContextManager has no getAll() method. Should use session.getContext() instead.",
+      "status": "fixed",
+      "lines": "286",
+      "severity": "high",
+      "_hash": "402b63bfa2d4aa56",
+      "_source": "claude"
+    },
+    {
+      "type": "potential_issue",
+      "file": "bin/mcp/handlers/phase.js",
+      "description": "Bug: phase.js:160 calls session.getAll() but method doesn't exist. Should use session.getContext()",
+      "status": "fixed",
+      "lines": "160",
+      "severity": "high",
+      "_hash": "0cd9b27f7504ed35",
+      "_source": "claude"
+    },
+    {
+      "type": "potential_issue",
+      "file": "bin/mcp/handlers/session.js",
+      "description": "Bug: session.js:160 calls session.getAll() but method doesn't exist. Should use session.getContext()",
+      "status": "fixed",
+      "lines": "160",
+      "severity": "high",
+      "_hash": "d8eaf984f56b7efc",
+      "_source": "claude"
+    },
+    {
+      "type": "potential_issue",
+      "file": "lib/gsd-executor.js",
+      "description": "Process cleanup in verification timeout - _runVerification method uses spawn with 60s timeout but lacks explicit process cleanup, can lead to zombie processes",
+      "status": "open",
+      "issueId": "GOO-141",
+      "lines": "407-435",
+      "severity": "high",
+      "_hash": "459e36dfba90105b",
+      "_source": "claude"
+    },
+    {
+      "type": "potential_issue",
+      "file": "lib/gsd-executor.js",
+      "description": "Subagent result validation missing - code assumes subagentResult has expected properties without validation, malformed data could cause undefined behavior",
+      "status": "open",
+      "issueId": "GOO-142",
+      "lines": "277-299",
+      "severity": "high",
+      "_hash": "4d40f00c0d90efa5",
+      "_source": "claude"
+    },
+    {
+      "type": "critical_security",
+      "file": "lib/git-service.js",
+      "description": "TOCTOU race condition - File existence check (existsSync) before staging creates time-of-check-time-of-use vulnerability",
+      "status": "open",
+      "issueId": "GOO-143",
+      "lines": "90-120",
+      "severity": "high",
+      "_hash": "e2491bdeb7e14ec3",
+      "_source": "claude"
+    },
+    {
+      "type": "refactor_suggestion",
+      "file": "lib/gsd-executor.js",
+      "description": "Missing comprehensive error handling in _executeTaskViaSubagent - need to differentiate between timeout, network, and validation errors",
+      "status": "open",
+      "issueId": "GOO-144",
+      "lines": "266-349",
+      "severity": "medium",
+      "_hash": "94d33894b7af18c1",
+      "_source": "claude"
+    },
+    {
+      "type": "performance",
+      "file": "lib/git-service.js",
+      "description": "Sequential file staging is slow for large changesets (100+ files) - 5-10x speedup possible with batching",
+      "status": "open",
+      "issueId": "GOO-146",
+      "lines": "90-120",
+      "severity": "medium",
+      "_hash": "471147428e8442ac",
+      "_source": "claude"
+    },
+    {
+      "type": "documentation",
+      "file": "lib/git-service.js",
+      "description": "Missing usage examples in git-service.js documentation - Add @example JSDoc tags to GitService class methods",
+      "status": "open",
+      "severity": "low",
+      "_hash": "840e534a8251225c",
+      "_source": "claude"
+    },
+    {
+      "type": "documentation",
+      "file": "bin/mcp-server.js",
+      "description": "MCP server documentation outdated - Update header to reflect new modular architecture",
+      "status": "open",
+      "severity": "low",
+      "_hash": "8c0e299f852f615b",
+      "_source": "claude"
+    }
+  ],
+  "trackedFiles": {
+    "created": [],
+    "modified": [],
+    "deleted": []
+  },
+  "lastUpdated": "2026-01-16T19:01:37.735Z",
+  "exports": {
+    "claude": {
+      "exportedAt": "2026-01-16T19:01:37.733Z",
+      "role": "backend",
+      "contentHash": "75473213fdae",
+      "stats": {
+        "totalFindings": 10,
+        "trackedFiles": 0
+      }
+    }
+  }
+}
