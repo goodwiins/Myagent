@@ -6,7 +6,7 @@
  * @module goodflows/bin/mcp/handlers/phase
  */
 
-import { mcpResponse, mcpError } from '../tool-registry.js';
+import { mcpResponse } from '../tool-registry.js';
 
 /**
  * Phase Tool Definitions

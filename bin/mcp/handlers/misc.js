@@ -577,7 +577,7 @@ export const handlers = {
   },
 
   async goodflows_export_handoff(args, services) {
-    const { activeSessions, contextStore, getProjectContext, goodflowsBasePath } = services;
+    const { activeSessions, contextStore, getProjectContext } = services;
 
     // Run pre-handoff hook if exists
     const preHookPath = join(process.cwd(), 'bin', 'hooks', 'pre-handoff.js');
@@ -1065,7 +1065,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
     }
   },
 
-  async goodflows_resolve_linear_team(args, services) {
+  async goodflows_resolve_linear_team(args, _services) {
     try {
       const teamInput = args.team;
       const teams = args.teams;

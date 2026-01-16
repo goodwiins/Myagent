@@ -6,7 +6,7 @@
  * @module goodflows/bin/mcp/handlers/context
  */
 
-import { mcpResponse, mcpError } from '../tool-registry.js';
+import { mcpResponse } from '../tool-registry.js';
 
 /**
  * Context Store Tool Definitions

@@ -143,7 +143,7 @@ Example: {} - Get full status, or { "llm": "gemini" } for specific LLM`,
  */
 export const handlers = {
   async goodflows_sync_export(args, services) {
-    const { activeSessions, contextStore, getProjectContext, goodflowsBasePath } = services;
+    const { activeSessions, contextStore, getProjectContext } = services;
 
     try {
       const syncManager = new SyncManager({ basePath: process.cwd() });
@@ -184,7 +184,7 @@ export const handlers = {
     }
   },
 
-  async goodflows_sync_import(args, services) {
+  async goodflows_sync_import(args, _services) {
     try {
       const syncManager = new SyncManager({ basePath: process.cwd() });
 
@@ -208,7 +208,7 @@ export const handlers = {
     }
   },
 
-  async goodflows_sync_merge(args, services) {
+  async goodflows_sync_merge(args, _services) {
     try {
       const syncManager = new SyncManager({ basePath: process.cwd() });
 
@@ -236,7 +236,7 @@ export const handlers = {
     }
   },
 
-  async goodflows_sync_status(args, services) {
+  async goodflows_sync_status(args, _services) {
     try {
       const syncManager = new SyncManager({ basePath: process.cwd() });
       const result = syncManager.status({ llm: args.llm });
