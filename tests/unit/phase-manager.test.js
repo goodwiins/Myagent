@@ -33,9 +33,13 @@ describe('PhaseManager', () => {
       const result = await phaseManager.init();
       expect(result.success).toBe(true);
       
-      const phasesPath = path.join(tempDir, '.goodflows', 'phases');
-      const exists = await fs.access(phasesPath).then(() => true).catch(() => false);
-      expect(exists).toBe(true);
+      // Verify the returned path matches expected structure
+      const expectedPath = path.join(tempDir, '.goodflows', 'phases');
+      expect(result.path).toBe(expectedPath);
+      
+      // Use fs.stat for more reliable existence check on Windows
+      const stats = await fs.stat(result.path);
+      expect(stats.isDirectory()).toBe(true);
     });
   });
 
