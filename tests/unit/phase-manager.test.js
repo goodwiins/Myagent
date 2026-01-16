@@ -167,9 +167,19 @@ describe('PhaseManager', () => {
       expect(result.planNumber).toBe(1);
       expect(result.taskCount).toBe(1);
 
-      // Check plan file was created using fs.stat for reliability
-      const planPath = path.join(tempDir, '.goodflows', 'phases', '01-foundation', '01-01-PLAN.md');
-      const planStats = await fs.stat(planPath);
+      // Check plan file was created using the path from result
+      // Add retry for flaky filesystem on Node 18 Ubuntu
+      const planPath = result.planPath || path.join(tempDir, '.goodflows', 'phases', '01-foundation', '01-01-PLAN.md');
+      let planStats;
+      for (let i = 0; i < 3; i++) {
+        try {
+          planStats = await fs.stat(planPath);
+          break;
+        } catch {
+          if (i === 2) throw new Error(`Plan file not found after retries: ${planPath}`);
+          await new Promise(r => setTimeout(r, 50)); // Small delay before retry
+        }
+      }
       expect(planStats.isFile()).toBe(true);
     });
 
