@@ -27,7 +27,6 @@ import { join } from 'path';
 import { existsSync, readFileSync, mkdirSync } from 'fs';
 
 import { ContextStore } from '../lib/context-store.js';
-import { SessionContextManager } from '../lib/session-context.js';
 import { PatternTracker } from '../lib/pattern-tracker.js';
 import { ContextFileManager } from '../lib/context-files.js';
 import {

@@ -6,7 +6,7 @@
  * @module goodflows/bin/mcp/handlers/pattern
  */
 
-import { mcpResponse, mcpError } from '../tool-registry.js';
+import { mcpResponse } from '../tool-registry.js';
 
 /**
  * Pattern Tracker Tool Definitions
