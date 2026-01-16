@@ -49,7 +49,7 @@ import { ContextFileManager } from '../lib/context-files.js';
 import { parseTask, validateTask, generateTaskPrompt, parseMultiTaskPlan, createMultiTaskPlanXml } from '../lib/xml-task-parser.js';
 import { findLinearMatches, getMatchRecommendation } from '../lib/context-index.js';
 import { PhaseManager } from '../lib/phase-manager.js';
-import { GsdExecutor, EXECUTION_STRATEGY, COMMIT_TYPES, TASK_STATUS } from '../lib/gsd-executor.js';
+import { GsdExecutor } from '../lib/gsd-executor.js';
 
 // ─────────────────────────────────────────────────────────────
 // Working Directory Resolution
@@ -168,7 +168,6 @@ try {
   gsdExecutor = new GsdExecutor({
     basePath: workingDirectory,
     phaseManager,
-    sessionManager: sessionManager,
   });
 } catch (e) {
   console.error(`Warning: GsdExecutor init failed: ${e.message}`);
@@ -922,7 +921,7 @@ Example:
         action: {
           type: 'string',
           enum: ['create_issue', 'fix_issue', 'review'],
-          description: 'What action you intend to take'
+          description: 'What action you intend to take',
         },
         findings: {
           type: 'array',
@@ -931,10 +930,10 @@ Example:
             properties: {
               file: { type: 'string', description: 'File path' },
               description: { type: 'string', description: 'Finding description' },
-              type: { type: 'string', description: 'Finding type' }
-            }
+              type: { type: 'string', description: 'Finding type' },
+            },
           },
-          description: 'Findings/actions you intend to process'
+          description: 'Findings/actions you intend to process',
         },
         sessionId: { type: 'string', description: 'Session ID for caching' },
         team: { type: 'string', description: 'Linear team name (resolved, not key)' },
@@ -949,9 +948,9 @@ Example:
               title: { type: 'string' },
               description: { type: 'string' },
               status: { type: 'string' },
-              url: { type: 'string' }
-            }
-          }
+              url: { type: 'string' },
+            },
+          },
         },
         options: {
           type: 'object',
@@ -959,11 +958,11 @@ Example:
             similarityThreshold: { type: 'number', description: 'Similarity threshold 0-1 (default: 0.5)' },
             includeInProgress: { type: 'boolean', description: 'Include in-progress issues (default: true)' },
             includeDone: { type: 'boolean', description: 'Include done issues (default: false)' },
-            forceRefresh: { type: 'boolean', description: 'Bypass cache and refresh (default: false)' }
-          }
-        }
+            forceRefresh: { type: 'boolean', description: 'Bypass cache and refresh (default: false)' },
+          },
+        },
       },
-      required: ['action', 'findings', 'sessionId']
+      required: ['action', 'findings', 'sessionId'],
     },
   },
 
@@ -2681,7 +2680,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
       case 'goodflows_resolve_linear_team': {
         try {
           const teamInput = args.team;
-          let teams = args.teams;
+          const teams = args.teams;
 
           // If no pre-fetched teams, we need them passed from Linear MCP
           if (!teams || !Array.isArray(teams) || teams.length === 0) {
@@ -2703,7 +2702,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
             t.key?.toLowerCase() === inputLower ||
             t.name === teamInput ||
             t.name?.toLowerCase() === inputLower ||
-            t.id === teamInput
+            t.id === teamInput,
           );
 
           if (!resolved) {
@@ -2776,7 +2775,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
             similarityThreshold = 0.5,
             includeInProgress = true,
             includeDone = false,
-            forceRefresh = false
+            forceRefresh = false,
           } = options;
 
           // Validate inputs
@@ -2788,7 +2787,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
                 clear: [],
                 summary: { total: 0, conflicts: 0, clear: 0 },
                 requiresConfirmation: false,
-                message: 'No findings to check'
+                message: 'No findings to check',
               }, null, 2) }],
             };
           }
@@ -2830,7 +2829,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
                   summary: { total: findings.length, conflicts: 0, clear: findings.length },
                   requiresConfirmation: false,
                   warning: 'No Linear issues provided for comparison. Pass linearIssues from linear_list_issues() for accurate conflict detection.',
-                  cache: cacheInfo
+                  cache: cacheInfo,
                 }, null, 2) }],
               };
             }
@@ -2852,21 +2851,21 @@ await goodflows_context_query({ status: "open", limit: 10 })
           for (const finding of findings) {
             const matches = findLinearMatches(finding, issues, {
               threshold: similarityThreshold,
-              includeStatus
+              includeStatus,
             });
 
             if (matches.length > 0) {
               // Get recommendation for each match
               const enrichedMatches = matches.map(m => ({
                 ...m,
-                recommendation: getMatchRecommendation(action, m)
+                recommendation: getMatchRecommendation(action, m),
               }));
 
               conflicts.push({
                 finding,
                 matches: enrichedMatches,
                 bestMatch: enrichedMatches[0],
-                recommendation: enrichedMatches[0].recommendation
+                recommendation: enrichedMatches[0].recommendation,
               });
             } else {
               clear.push(finding);
@@ -2887,7 +2886,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
                 similarity: `${Math.round(match.similarity * 100)}%`,
                 issueStatus: match.issue.status,
                 issueUrl: match.issue.url,
-                recommendation: match.recommendation
+                recommendation: match.recommendation,
               };
             });
           }
@@ -2898,7 +2897,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
               action,
               timestamp: Date.now(),
               conflictsFound: conflicts.length,
-              clearCount: clear.length
+              clearCount: clear.length,
             });
           }
 
@@ -2910,20 +2909,20 @@ await goodflows_context_query({ status: "open", limit: 10 })
               summary: {
                 total: findings.length,
                 conflicts: conflicts.length,
-                clear: clear.length
+                clear: clear.length,
               },
               requiresConfirmation: conflicts.length > 0,
               conflictSummary,
               cache: {
                 ...cacheInfo,
-                issueCount: issues.length
+                issueCount: issues.length,
               },
               promptOptions: conflicts.length > 0 ? [
                 { id: 'skip', label: 'Skip conflicts', description: `Process only ${clear.length} clear findings` },
                 { id: 'link', label: 'Link to existing', description: 'Add comments to existing issues instead' },
                 { id: 'force', label: 'Force create', description: 'Create anyway (marked as potential duplicate)' },
-                { id: 'abort', label: 'Abort', description: 'Stop workflow entirely' }
-              ] : null
+                { id: 'abort', label: 'Abort', description: 'Stop workflow entirely' },
+              ] : null,
             }, null, 2) }],
           };
         } catch (error) {
@@ -2931,7 +2930,7 @@ await goodflows_context_query({ status: "open", limit: 10 })
             content: [{ type: 'text', text: JSON.stringify({
               status: 'error',
               error: error.message,
-              stack: error.stack
+              stack: error.stack,
             }, null, 2) }],
             isError: true,
           };

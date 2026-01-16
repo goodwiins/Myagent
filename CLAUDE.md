@@ -38,33 +38,33 @@ GoodFlows is a multi-agent AI system for automated code review, issue tracking, 
 
 ## Agent Files
 
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| `review-orchestrator.md` | Sonnet | Coordinates the complete review lifecycle |
-| `issue-creator.md` | Haiku | Creates structured Linear issues from findings |
-| `coderabbit-auto-fixer.md` | Opus | Applies fixes safely with verification |
+| Agent                      | Model  | Purpose                                        |
+| -------------------------- | ------ | ---------------------------------------------- |
+| `review-orchestrator.md`   | Sonnet | Coordinates the complete review lifecycle      |
+| `issue-creator.md`         | Haiku  | Creates structured Linear issues from findings |
+| `coderabbit-auto-fixer.md` | Opus   | Applies fixes safely with verification         |
 
 ## Shared Configuration
 
 ### Linear Labels
 
-| Finding Type | Labels | Priority |
-|--------------|--------|----------|
-| `critical_security` | `security`, `critical` | 1 (Urgent) |
-| `potential_issue` | `bug` | 2 (High) |
-| `refactor_suggestion` | `improvement` | 3 (Normal) |
-| `performance` | `performance` | 3 (Normal) |
-| `documentation` | `docs` | 4 (Low) |
+| Finding Type          | Labels                 | Priority   |
+| --------------------- | ---------------------- | ---------- |
+| `critical_security`   | `security`, `critical` | 1 (Urgent) |
+| `potential_issue`     | `bug`                  | 2 (High)   |
+| `refactor_suggestion` | `improvement`          | 3 (Normal) |
+| `performance`         | `performance`          | 3 (Normal) |
+| `documentation`       | `docs`                 | 4 (Low)    |
 
 ### Issue Title Conventions
 
-| Type | Prefix | Example |
-|------|--------|---------|
-| Security | `[SECURITY]` | `[SECURITY] Exposed API key in config` |
-| Bug | `fix:` | `fix: Null pointer in user handler` |
-| Refactor | `refactor:` | `refactor: Extract validation logic` |
-| Performance | `perf:` | `perf: Optimize database query` |
-| Documentation | `docs:` | `docs: Update API documentation` |
+| Type          | Prefix       | Example                                |
+| ------------- | ------------ | -------------------------------------- |
+| Security      | `[SECURITY]` | `[SECURITY] Exposed API key in config` |
+| Bug           | `fix:`       | `fix: Null pointer in user handler`    |
+| Refactor      | `refactor:`  | `refactor: Extract validation logic`   |
+| Performance   | `perf:`      | `perf: Optimize database query`        |
+| Documentation | `docs:`      | `docs: Update API documentation`       |
 
 ### Memory & Context Storage
 
@@ -72,21 +72,21 @@ GoodFlows uses a **hybrid storage strategy** for maximum compatibility:
 
 #### Serena Memory (Legacy - `.serena/memories/`)
 
-| File | Purpose |
-|------|---------|
-| `coderabbit_findings.md` | History of all review findings |
-| `auto_fix_patterns.md` | Reusable fix templates and patterns |
-| `agent_runs.md` | Execution history and metrics |
+| File                     | Purpose                             |
+| ------------------------ | ----------------------------------- |
+| `coderabbit_findings.md` | History of all review findings      |
+| `auto_fix_patterns.md`   | Reusable fix templates and patterns |
+| `agent_runs.md`          | Execution history and metrics       |
 
 #### GoodFlows Context Store (Enhanced - `.goodflows/context/`)
 
-| Path | Purpose | Format |
-|------|---------|--------|
-| `index.json` | Fast hash-based lookups | JSON |
-| `findings/*.jsonl` | Partitioned findings by month | JSONL |
-| `patterns/patterns.json` | Fix patterns with confidence scores | JSON |
-| `patterns/history.jsonl` | Pattern usage history | JSONL |
-| `sessions/*.json` | Agent run sessions | JSON |
+| Path                     | Purpose                             | Format |
+| ------------------------ | ----------------------------------- | ------ |
+| `index.json`             | Fast hash-based lookups             | JSON   |
+| `findings/*.jsonl`       | Partitioned findings by month       | JSONL  |
+| `patterns/patterns.json` | Fix patterns with confidence scores | JSON   |
+| `patterns/history.jsonl` | Pattern usage history               | JSONL  |
+| `sessions/*.json`        | Agent run sessions                  | JSON   |
 
 #### Key Features
 
@@ -130,28 +130,31 @@ The Agent Registry provides programmatic invocation between agents with validate
 ### Usage
 
 ```javascript
-import { createAgentRegistry } from 'goodflows/lib';
+import { createAgentRegistry } from "goodflows/lib";
 
 const registry = createAgentRegistry();
 
 // Start session with metadata
-const sessionId = registry.startSession({ trigger: 'code-review', branch: 'feature-x' });
+const sessionId = registry.startSession({
+  trigger: "code-review",
+  branch: "feature-x",
+});
 
 // Write to shared context
-registry.setContext('findings.all', findings);
+registry.setContext("findings.all", findings);
 
 // Create checkpoint before risky operations
-const checkpoint = registry.checkpoint('before_issues');
+const checkpoint = registry.checkpoint("before_issues");
 
 // Create validated invocation
-const invocation = registry.createInvocation('issue-creator', {
+const invocation = registry.createInvocation("issue-creator", {
   findings: registry.sortByPriority(findings),
-  team: 'GOO',
+  team: "GOO",
   sessionId,
 });
 
 // Read from shared context (written by other agents)
-const createdIssues = registry.getContext('issues.created', []);
+const createdIssues = registry.getContext("issues.created", []);
 
 // Rollback if needed
 if (error) registry.rollback(checkpoint);
@@ -181,47 +184,47 @@ With Session Context:
 
 ### Key Concepts
 
-| Concept | Description |
-|---------|-------------|
-| **Session** | Workflow execution with unique ID, persists to disk |
-| **Context** | Shared state organized by namespace (findings, issues, fixes) |
-| **Checkpoints** | Snapshots for rollback if operations fail |
-| **Events** | Timeline of what happened for debugging |
+| Concept         | Description                                                   |
+| --------------- | ------------------------------------------------------------- |
+| **Session**     | Workflow execution with unique ID, persists to disk           |
+| **Context**     | Shared state organized by namespace (findings, issues, fixes) |
+| **Checkpoints** | Snapshots for rollback if operations fail                     |
+| **Events**      | Timeline of what happened for debugging                       |
 
 ### Context Namespaces
 
-| Path | Written By | Read By |
-|------|------------|---------|
-| `findings.all` | orchestrator | issue-creator, auto-fixer |
-| `findings.critical` | orchestrator | issue-creator |
-| `issues.created` | issue-creator | orchestrator, auto-fixer |
-| `issues.details` | issue-creator | auto-fixer |
-| `fixes.applied` | auto-fixer | orchestrator |
-| `fixes.failed` | auto-fixer | orchestrator |
+| Path                | Written By    | Read By                   |
+| ------------------- | ------------- | ------------------------- |
+| `findings.all`      | orchestrator  | issue-creator, auto-fixer |
+| `findings.critical` | orchestrator  | issue-creator             |
+| `issues.created`    | issue-creator | orchestrator, auto-fixer  |
+| `issues.details`    | issue-creator | auto-fixer                |
+| `fixes.applied`     | auto-fixer    | orchestrator              |
+| `fixes.failed`      | auto-fixer    | orchestrator              |
 
 ### Session Lifecycle
 
 ```javascript
-import { SessionContextManager } from 'goodflows/lib';
+import { SessionContextManager } from "goodflows/lib";
 
 // 1. Create session (orchestrator)
 const session = new SessionContextManager();
-const sessionId = session.start({ trigger: 'code-review' });
+const sessionId = session.start({ trigger: "code-review" });
 
 // 2. Resume session (other agents)
 const session = SessionContextManager.resume(sessionId);
 
 // 3. Read/Write context
-session.set('findings.critical', criticalFindings);
-const findings = session.get('findings.all', []);
+session.set("findings.critical", criticalFindings);
+const findings = session.get("findings.all", []);
 
 // 4. Checkpoints & rollback
-const chk = session.checkpoint('before_fixes');
+const chk = session.checkpoint("before_fixes");
 // ... if something fails ...
 session.rollback(chk);
 
 // 5. Track events
-session.addEvent('issues_created', { count: 5 });
+session.addEvent("issues_created", { count: 5 });
 
 // 6. Complete session
 session.complete({ totalIssues: 5, fixesApplied: 3 });
@@ -229,11 +232,11 @@ session.complete({ totalIssues: 5, fixesApplied: 3 });
 
 ### Available Schemas
 
-| Agent | Input | Output |
-|-------|-------|--------|
-| `review-orchestrator` | reviewType, autoFix, priorityThreshold | summary, issues, errors |
-| `issue-creator` | findings[], team, options | created[], duplicatesSkipped |
-| `coderabbit-auto-fixer` | issues[], options | fixed[], failed[] |
+| Agent                   | Input                                  | Output                       |
+| ----------------------- | -------------------------------------- | ---------------------------- |
+| `review-orchestrator`   | reviewType, autoFix, priorityThreshold | summary, issues, errors      |
+| `issue-creator`         | findings[], team, options              | created[], duplicatesSkipped |
+| `coderabbit-auto-fixer` | issues[], options                      | fixed[], failed[]            |
 
 ### Shared Constants
 
@@ -264,14 +267,14 @@ With Priority Queue:
 ### Usage
 
 ```javascript
-import { createAgentRegistry, PRIORITY } from 'goodflows/lib';
+import { createAgentRegistry, PRIORITY } from "goodflows/lib";
 
 const registry = createAgentRegistry();
 
 // Create queue (auto-sorts by priority)
 registry.createQueue(findings, {
-  throttleMs: 100,                    // Rate limiting
-  priorityThreshold: PRIORITY.HIGH,  // Only P1 and P2
+  throttleMs: 100, // Rate limiting
+  priorityThreshold: PRIORITY.HIGH, // Only P1 and P2
 });
 
 // Process in priority order
@@ -279,9 +282,9 @@ while (!registry.getQueue().isEmpty()) {
   const finding = registry.nextFinding();
   try {
     await createIssue(finding);
-    registry.completeFinding({ issueId: 'GOO-31' });
+    registry.completeFinding({ issueId: "GOO-31" });
   } catch (error) {
-    registry.failFinding(error);  // Auto-retry up to 3x
+    registry.failFinding(error); // Auto-retry up to 3x
   }
 }
 
@@ -293,23 +296,23 @@ await registry.processQueue(async (finding) => {
 
 ### Priority Mapping
 
-| Finding Type | Priority | Level |
-|--------------|----------|-------|
-| `critical_security` | P1 | Urgent |
-| `potential_issue` | P2 | High |
-| `refactor_suggestion` | P3 | Normal |
-| `performance` | P3 | Normal |
-| `documentation` | P4 | Low |
+| Finding Type          | Priority | Level  |
+| --------------------- | -------- | ------ |
+| `critical_security`   | P1       | Urgent |
+| `potential_issue`     | P2       | High   |
+| `refactor_suggestion` | P3       | Normal |
+| `performance`         | P3       | Normal |
+| `documentation`       | P4       | Low    |
 
 ### Queue Features
 
-| Feature | Description |
-|---------|-------------|
-| **Auto-sorting** | Items sorted by priority on enqueue |
-| **Throttling** | Rate limiting between API calls |
-| **Retry** | Failed items auto-retry up to 3x |
-| **Filtering** | Skip items below priority threshold |
-| **Stats** | Track pending, completed, failed counts |
+| Feature          | Description                             |
+| ---------------- | --------------------------------------- |
+| **Auto-sorting** | Items sorted by priority on enqueue     |
+| **Throttling**   | Rate limiting between API calls         |
+| **Retry**        | Failed items auto-retry up to 3x        |
+| **Filtering**    | Skip items below priority threshold     |
+| **Stats**        | Track pending, completed, failed counts |
 
 ## GSD (Get Shit Done) Integration
 
@@ -327,49 +330,50 @@ PROJECT.md (Vision) → ROADMAP.md (Phases) → PLAN.md (Tasks) → SUMMARY.md (
 
 ### GSD Agents
 
-| Agent | Model | Purpose |
-|-------|-------|---------|
-| `planner.md` | Sonnet | Creates PLAN.md files with XML tasks |
-| `executor.md` | Opus | Executes plans with per-task commits |
+| Agent         | Model  | Purpose                              |
+| ------------- | ------ | ------------------------------------ |
+| `planner.md`  | Sonnet | Creates PLAN.md files with XML tasks |
+| `executor.md` | Opus   | Executes plans with per-task commits |
 
 ### Context Files
 
-| File | Purpose | Size Limit |
-|------|---------|------------|
-| `PROJECT.md` | Vision and architecture (always loaded) | 2K tokens |
-| `ROADMAP.md` | Phases and milestones | 3K tokens |
-| `STATE.md` | Current position and session memory | 1.5K tokens |
-| `PLAN.md` | Current atomic task in XML format | 1K tokens |
-| `SUMMARY.md` | Execution history | 5K tokens |
-| `ISSUES.md` | Deferred work queue | 2K tokens |
+| File         | Purpose                                 | Size Limit  |
+| ------------ | --------------------------------------- | ----------- |
+| `PROJECT.md` | Vision and architecture (always loaded) | 2K tokens   |
+| `ROADMAP.md` | Phases and milestones                   | 3K tokens   |
+| `STATE.md`   | Current position and session memory     | 1.5K tokens |
+| `PLAN.md`    | Current atomic task in XML format       | 1K tokens   |
+| `SUMMARY.md` | Execution history                       | 5K tokens   |
+| `ISSUES.md`  | Deferred work queue                     | 2K tokens   |
 
 ### GSD MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `goodflows_phase_create` | Create a new phase in ROADMAP.md |
-| `goodflows_phase_plan` | Create PLAN.md(s) for a phase |
-| `goodflows_phase_status` | Get current phase progress |
-| `goodflows_phase_complete` | Mark phase as complete |
-| `goodflows_phase_list` | List all phases |
-| `goodflows_plan_get` | Get a specific plan |
-| `goodflows_plan_create_multi_task` | Create multi-task PLAN.md |
-| `goodflows_summary_create` | Create SUMMARY.md for completed plan |
-| `goodflows_gsd_execute_plan` | Execute PLAN.md with atomic commits |
-| `goodflows_gsd_commit_task` | Create atomic commit for a task |
-| `goodflows_gsd_resume_checkpoint` | Resume after checkpoint pause |
+| Tool                               | Description                          |
+| ---------------------------------- | ------------------------------------ |
+| `goodflows_phase_create`           | Create a new phase in ROADMAP.md     |
+| `goodflows_phase_plan`             | Create PLAN.md(s) for a phase        |
+| `goodflows_phase_status`           | Get current phase progress           |
+| `goodflows_phase_complete`         | Mark phase as complete               |
+| `goodflows_phase_list`             | List all phases                      |
+| `goodflows_plan_get`               | Get a specific plan                  |
+| `goodflows_plan_create_multi_task` | Create multi-task PLAN.md            |
+| `goodflows_summary_create`         | Create SUMMARY.md for completed plan |
+| `goodflows_gsd_execute_plan`       | Execute PLAN.md with atomic commits  |
+| `goodflows_gsd_commit_task`        | Create atomic commit for a task      |
+| `goodflows_gsd_resume_checkpoint`  | Resume after checkpoint pause        |
 
 ### Execution Strategies
 
-| Strategy | Description | Use When |
-|----------|-------------|----------|
-| `autonomous` | Full execution without stopping | No checkpoints needed |
-| `segmented` | Pause at checkpoints | Human verification required |
-| `decision` | Pause at decision checkpoints only | User choices needed |
+| Strategy     | Description                        | Use When                    |
+| ------------ | ---------------------------------- | --------------------------- |
+| `autonomous` | Full execution without stopping    | No checkpoints needed       |
+| `segmented`  | Pause at checkpoints               | Human verification required |
+| `decision`   | Pause at decision checkpoints only | User choices needed         |
 
 ### Commit Format
 
 All commits follow conventional format:
+
 ```
 {type}({phase}-{plan}): {task-name}
 ```
@@ -377,6 +381,7 @@ All commits follow conventional format:
 **Types**: `feat`, `fix`, `test`, `refactor`, `perf`, `chore`, `docs`
 
 **Example commits:**
+
 ```
 feat(02-01): Create user model
 fix(02-01): Add input validation
@@ -386,40 +391,44 @@ docs(02-01): complete plan  # Metadata commit
 
 ### Deviation Rules
 
-| Rule | Category | Trigger | Action |
-|------|----------|---------|--------|
-| 1 | Bug Found | Discovered existing bug | Auto-fix, document |
-| 2 | Critical Missing | Security/correctness gap | Auto-add, commit |
-| 3 | Blocker | Can't proceed without fix | Auto-fix, document |
-| 4 | Architectural | Design change needed | **STOP**, ask user |
-| 5 | Enhancement | Nice-to-have | Defer to ISSUES.md |
+| Rule | Category         | Trigger                   | Action             |
+| ---- | ---------------- | ------------------------- | ------------------ |
+| 1    | Bug Found        | Discovered existing bug   | Auto-fix, document |
+| 2    | Critical Missing | Security/correctness gap  | Auto-add, commit   |
+| 3    | Blocker          | Can't proceed without fix | Auto-fix, document |
+| 4    | Architectural    | Design change needed      | **STOP**, ask user |
+| 5    | Enhancement      | Nice-to-have              | Defer to ISSUES.md |
 
 ### GSD Workflow Example
 
 ```javascript
 // 1. Create phase
-goodflows_phase_create({ name: 'api-endpoints', goal: 'REST API' })
+goodflows_phase_create({ name: "api-endpoints", goal: "REST API" });
 
 // 2. Create plan
 goodflows_phase_plan({
   phase: 2,
   tasks: [
-    { name: 'Create user model', action: '...', verify: 'prisma validate' },
-    { name: 'Add validation', action: '...', verify: 'npm test' },
-    { type: 'checkpoint:human-verify', whatBuilt: 'User model', gate: 'blocking' }
-  ]
-})
+    { name: "Create user model", action: "...", verify: "prisma validate" },
+    { name: "Add validation", action: "...", verify: "npm test" },
+    {
+      type: "checkpoint:human-verify",
+      whatBuilt: "User model",
+      gate: "blocking",
+    },
+  ],
+});
 
 // 3. Execute plan
-goodflows_gsd_execute_plan({ phase: 2, plan: 1, strategy: 'segmented' })
+goodflows_gsd_execute_plan({ phase: 2, plan: 1, strategy: "segmented" });
 // Returns: { tasks, commits, deviations, summaryCreated, nextStep }
 
 // 4. Resume after checkpoint (if needed)
 goodflows_gsd_resume_checkpoint({
-  planPath: '.goodflows/phases/02-api-endpoints/02-01-PLAN.md',
-  checkpointId: 'task-3',
-  approved: true
-})
+  planPath: ".goodflows/phases/02-api-endpoints/02-01-PLAN.md",
+  checkpointId: "task-3",
+  approved: true,
+});
 ```
 
 ### Plan XML Structure
@@ -501,7 +510,7 @@ for await (const message of query({
     agents: config.agents,
     hooks: config.hooks,
     mcpServers: config.mcpServers,
-  }
+  },
 })) {
   console.log(message);
 }
@@ -549,25 +558,25 @@ console.log(result.summary);
 
 ### What SDK Provides vs GoodFlows Adds
 
-| Feature | SDK Built-in | GoodFlows Adds |
-|---------|-------------|----------------|
-| Agent execution | ✓ query(), tool loop | - |
-| Subagents | ✓ AgentDefinition | Model selection per agent |
-| Sessions | ✓ resume, fork | Checkpoints, rollback |
-| Hooks | ✓ Pre/Post tool use | Priority queue, dedup |
-| MCP | ✓ Native support | Linear/Serena config |
-| Priority ordering | - | ✓ Critical first |
-| Deduplication | - | ✓ Trigram similarity |
-| Pattern tracking | - | ✓ Fix confidence |
+| Feature           | SDK Built-in         | GoodFlows Adds            |
+| ----------------- | -------------------- | ------------------------- |
+| Agent execution   | ✓ query(), tool loop | -                         |
+| Subagents         | ✓ AgentDefinition    | Model selection per agent |
+| Sessions          | ✓ resume, fork       | Checkpoints, rollback     |
+| Hooks             | ✓ Pre/Post tool use  | Priority queue, dedup     |
+| MCP               | ✓ Native support     | Linear/Serena config      |
+| Priority ordering | -                    | ✓ Critical first          |
+| Deduplication     | -                    | ✓ Trigram similarity      |
+| Pattern tracking  | -                    | ✓ Fix confidence          |
 
 ### Available Exports
 
 ```javascript
 import {
-  GOODFLOWS_AGENTS,       // Agent definitions for SDK
-  createGoodFlowsHooks,   // Hooks with GoodFlows features
-  createGoodFlowsConfig,  // Complete SDK configuration
-  runGoodFlows,           // One-liner execution
+  GOODFLOWS_AGENTS, // Agent definitions for SDK
+  createGoodFlowsHooks, // Hooks with GoodFlows features
+  createGoodFlowsConfig, // Complete SDK configuration
+  runGoodFlows, // One-liner execution
 } from "goodflows/lib";
 ```
 
@@ -599,67 +608,69 @@ Add to your Claude Code settings (`~/.claude/settings.json` or project `.claude/
 
 ### GoodFlows MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `goodflows_context_query` | Query findings by type, file, status |
-| `goodflows_context_add` | Add finding with deduplication |
-| `goodflows_context_check_duplicate` | Check for duplicate/similar findings |
-| `goodflows_context_update` | Update finding status, link to issue |
-| `goodflows_context_export` | Export to markdown |
-| `goodflows_session_start` | Start workflow session |
-| `goodflows_session_resume` | Resume existing session |
-| `goodflows_session_get_context` | Read from shared context |
-| `goodflows_session_set_context` | Write to shared context |
-| `goodflows_session_checkpoint` | Create rollback point |
-| `goodflows_session_rollback` | Rollback to checkpoint |
-| `goodflows_pattern_recommend` | Get fix pattern recommendations |
-| `goodflows_pattern_record_success` | Record successful fix |
-| `goodflows_pattern_record_failure` | Record failed fix |
-| `goodflows_queue_create` | Create priority queue |
-| `goodflows_queue_next` | Get next priority item |
-| `goodflows_stats` | Get store statistics (includes project/GitHub info) |
-| `goodflows_project_info` | Get project name, version, and GitHub repo info |
-| `goodflows_export_handoff` | Export state for LLM/IDE handoff |
-| `goodflows_generate_resume_prompt` | Generate prompt for another LLM to resume |
-| `goodflows_sync_linear` | Sync issues from Linear to context store |
-| `goodflows_auto_index` | Configure automatic indexing of findings |
-| `goodflows_track_file` | Track a file operation (created/modified/deleted) |
-| `goodflows_track_files` | Track multiple files at once |
-| `goodflows_track_issue` | Track an issue operation (created/fixed/skipped/failed) |
-| `goodflows_track_finding` | Track a finding |
-| `goodflows_start_work` | Start a work unit (groups related tracking) |
-| `goodflows_complete_work` | Complete work unit and get summary |
-| `goodflows_get_tracking_summary` | Get summary of all tracked items |
+| Tool                                | Description                                             |
+| ----------------------------------- | ------------------------------------------------------- |
+| `goodflows_context_query`           | Query findings by type, file, status                    |
+| `goodflows_context_add`             | Add finding with deduplication                          |
+| `goodflows_context_check_duplicate` | Check for duplicate/similar findings                    |
+| `goodflows_context_update`          | Update finding status, link to issue                    |
+| `goodflows_context_export`          | Export to markdown                                      |
+| `goodflows_session_start`           | Start workflow session                                  |
+| `goodflows_session_resume`          | Resume existing session                                 |
+| `goodflows_session_get_context`     | Read from shared context                                |
+| `goodflows_session_set_context`     | Write to shared context                                 |
+| `goodflows_session_checkpoint`      | Create rollback point                                   |
+| `goodflows_session_rollback`        | Rollback to checkpoint                                  |
+| `goodflows_pattern_recommend`       | Get fix pattern recommendations                         |
+| `goodflows_pattern_record_success`  | Record successful fix                                   |
+| `goodflows_pattern_record_failure`  | Record failed fix                                       |
+| `goodflows_queue_create`            | Create priority queue                                   |
+| `goodflows_queue_next`              | Get next priority item                                  |
+| `goodflows_stats`                   | Get store statistics (includes project/GitHub info)     |
+| `goodflows_project_info`            | Get project name, version, and GitHub repo info         |
+| `goodflows_export_handoff`          | Export state for LLM/IDE handoff                        |
+| `goodflows_generate_resume_prompt`  | Generate prompt for another LLM to resume               |
+| `goodflows_sync_linear`             | Sync issues from Linear to context store                |
+| `goodflows_auto_index`              | Configure automatic indexing of findings                |
+| `goodflows_track_file`              | Track a file operation (created/modified/deleted)       |
+| `goodflows_track_files`             | Track multiple files at once                            |
+| `goodflows_track_issue`             | Track an issue operation (created/fixed/skipped/failed) |
+| `goodflows_track_finding`           | Track a finding                                         |
+| `goodflows_start_work`              | Start a work unit (groups related tracking)             |
+| `goodflows_complete_work`           | Complete work unit and get summary                      |
+| `goodflows_get_tracking_summary`    | Get summary of all tracked items                        |
 
 ### Easy Tracking
 
 GoodFlows provides easy tracking helpers that automatically update stats and context.
 
 **Basic Tracking:**
+
 ```javascript
 // Track files
-session.trackFile('src/auth.ts', 'created');
-session.trackFile('src/utils.ts', 'modified');
-session.trackFiles(['a.ts', 'b.ts', 'c.ts'], 'created');
+session.trackFile("src/auth.ts", "created");
+session.trackFile("src/utils.ts", "modified");
+session.trackFiles(["a.ts", "b.ts", "c.ts"], "created");
 
 // Track issues
-session.trackIssue('GOO-53', 'created', { title: 'Fix auth' });
-session.trackIssue('GOO-53', 'fixed');
-session.trackIssue('GOO-54', 'skipped', { reason: 'duplicate' });
+session.trackIssue("GOO-53", "created", { title: "Fix auth" });
+session.trackIssue("GOO-53", "fixed");
+session.trackIssue("GOO-54", "skipped", { reason: "duplicate" });
 
 // Track findings
-session.trackFinding({ type: 'security', file: 'auth.ts', description: '...' });
+session.trackFinding({ type: "security", file: "auth.ts", description: "..." });
 ```
 
 **Work Units (recommended for complex tasks):**
+
 ```javascript
 // Start work unit - groups all subsequent tracking
-session.startWork('fix-issue', { issueId: 'GOO-53', title: 'Thread Export' });
+session.startWork("fix-issue", { issueId: "GOO-53", title: "Thread Export" });
 
 // Track work (automatically linked to work unit)
-session.trackFile('src/export/index.ts', 'created');
-session.trackFile('src/export/formats/md.ts', 'created');
-session.trackIssue('GOO-53', 'fixed');
+session.trackFile("src/export/index.ts", "created");
+session.trackFile("src/export/formats/md.ts", "created");
+session.trackIssue("GOO-53", "fixed");
 
 // Complete work - calculates totals automatically
 const summary = session.completeWork({ success: true, endpoints: 5 });
@@ -667,6 +678,7 @@ const summary = session.completeWork({ success: true, endpoints: 5 });
 ```
 
 **Benefits:**
+
 - Auto-updates `stats` (issuesCreated, fixesApplied, etc.)
 - Auto-updates `context` for backwards compatibility
 - Deduplicates tracked items
@@ -678,25 +690,28 @@ const summary = session.completeWork({ success: true, endpoints: 5 });
 GoodFlows automatically detects project and GitHub information:
 
 **Auto-detected from:**
+
 - `package.json` - project name, version, description
 - `.git/config` - GitHub owner, repo, remote URL
 - `.git/HEAD` - current branch
 
 **Available via:**
+
 ```javascript
 // Get project info
-goodflows_project_info()
+goodflows_project_info();
 // Returns: { project: { name, version, ... }, github: { owner, repo, url, branch, ... } }
 
 // Stats now include project info
-goodflows_stats()
+goodflows_stats();
 // Returns: { project: { name, version }, github: { owner, repo, branch, url }, context: {...}, ... }
 ```
 
 **Auto-populated in sessions:**
+
 ```javascript
 // Sessions automatically include project context
-goodflows_session_start({ trigger: 'code-review' })
+goodflows_session_start({ trigger: "code-review" });
 // Session metadata includes: project, projectVersion, github, githubOwner, githubRepo, branch
 ```
 
@@ -705,51 +720,63 @@ goodflows_session_start({ trigger: 'code-review' })
 GoodFlows is **LLM-agnostic** - switch seamlessly between Claude, GPT-4, Gemini, or any model. Switch between Cursor, VS Code, Windsurf, or any IDE with MCP support.
 
 **Export current state for handoff:**
+
 ```javascript
-goodflows_export_handoff()
+goodflows_export_handoff();
 // Returns: { project, github, sessions, findings, resumeInstructions }
 
 // Or export specific session
-goodflows_export_handoff({ sessionId: "session_xxx" })
+goodflows_export_handoff({ sessionId: "session_xxx" });
 ```
 
 **Generate a resume prompt for another LLM:**
+
 ```javascript
 // Concise prompt (default)
-goodflows_generate_resume_prompt({ sessionId: "session_xxx" })
+goodflows_generate_resume_prompt({ sessionId: "session_xxx" });
 
 // Detailed prompt with full context
-goodflows_generate_resume_prompt({ sessionId: "session_xxx", style: "detailed" })
+goodflows_generate_resume_prompt({
+  sessionId: "session_xxx",
+  style: "detailed",
+});
 
 // Technical/JSON format
-goodflows_generate_resume_prompt({ sessionId: "session_xxx", style: "technical" })
+goodflows_generate_resume_prompt({
+  sessionId: "session_xxx",
+  style: "technical",
+});
 ```
 
 **Handoff workflow:**
 
 1. **In current IDE (Claude/Cursor):**
+
    ```javascript
    // Export state before switching
-   goodflows_export_handoff()
+   goodflows_export_handoff();
    // Or generate a prompt
-   goodflows_generate_resume_prompt({ style: "detailed" })
+   goodflows_generate_resume_prompt({ style: "detailed" });
    ```
 
 2. **In new IDE (GPT-4/VS Code):**
+
    - Configure GoodFlows MCP server
    - Paste the generated prompt, or:
+
    ```javascript
    // Verify connection
-   goodflows_project_info()
+   goodflows_project_info();
 
    // Resume session
-   goodflows_session_resume({ sessionId: "session_xxx" })
+   goodflows_session_resume({ sessionId: "session_xxx" });
 
    // Check progress
-   goodflows_get_tracking_summary()
+   goodflows_get_tracking_summary();
    ```
 
 **What gets preserved:**
+
 - Project and GitHub context
 - Session state and metadata
 - Tracking progress (files, issues, findings)
@@ -765,24 +792,26 @@ GoodFlows supports automatic indexing of findings from multiple sources:
 Sync issues from Linear to the context store. Two methods:
 
 **Method 1: Using Linear MCP (Recommended)**
+
 ```javascript
 // Step 1: Fetch issues via Linear MCP
-const issues = await linear_list_issues({ team: "GOO" })
+const issues = await linear_list_issues({ team: "GOO" });
 
 // Step 2: Sync to GoodFlows context store
-goodflows_sync_linear({ issues: issues })
+goodflows_sync_linear({ issues: issues });
 ```
 
 **Method 2: Direct API (requires LINEAR_API_KEY)**
+
 ```javascript
 // Sync all open issues for a team
-goodflows_sync_linear({ team: "GOO", status: "open" })
+goodflows_sync_linear({ team: "GOO", status: "open" });
 
 // Sync issues with specific labels
-goodflows_sync_linear({ team: "GOO", labels: ["bug", "security"] })
+goodflows_sync_linear({ team: "GOO", labels: ["bug", "security"] });
 
 // Sync issues created after a date
-goodflows_sync_linear({ team: "GOO", since: "2024-01-01" })
+goodflows_sync_linear({ team: "GOO", since: "2024-01-01" });
 ```
 
 #### Auto-Index Hook
@@ -811,36 +840,39 @@ A PostToolUse hook automatically indexes Linear issues when created via the Line
 
 ```javascript
 // Enable auto-indexing
-goodflows_auto_index({ enabled: true, sources: ["linear", "coderabbit", "fixes"] })
+goodflows_auto_index({
+  enabled: true,
+  sources: ["linear", "coderabbit", "fixes"],
+});
 
 // Disable auto-indexing
-goodflows_auto_index({ enabled: false })
+goodflows_auto_index({ enabled: false });
 ```
 
 ### Linear MCP Tools
 
-| Tool | Description |
-|------|-------------|
-| `linear_list_teams` | Get available teams |
-| `linear_create_issue` | Create a new issue |
-| `linear_update_issue` | Update issue status |
-| `linear_create_comment` | Add comment to issue |
+| Tool                       | Description          |
+| -------------------------- | -------------------- |
+| `linear_list_teams`        | Get available teams  |
+| `linear_create_issue`      | Create a new issue   |
+| `linear_update_issue`      | Update issue status  |
+| `linear_create_comment`    | Add comment to issue |
 | `linear_list_issue_labels` | Get available labels |
-| `linear_get_issue` | Get issue details |
-| `linear_search_issues` | Search for issues |
+| `linear_get_issue`         | Get issue details    |
+| `linear_search_issues`     | Search for issues    |
 
 ### Serena MCP Tools (Optional)
 
-| Tool | Description |
-|------|-------------|
-| `serena_find_symbol` | Find symbol definition |
-| `serena_find_referencing_symbols` | Find symbol references |
-| `serena_get_symbols_overview` | Get file symbol structure |
-| `serena_replace_symbol_body` | Replace symbol code |
-| `serena_replace_content` | Regex-based replacement |
-| `serena_read_file` | Read file content |
-| `serena_read_memory` | Read from Serena memory |
-| `serena_write_memory` | Write to Serena memory |
+| Tool                              | Description               |
+| --------------------------------- | ------------------------- |
+| `serena_find_symbol`              | Find symbol definition    |
+| `serena_find_referencing_symbols` | Find symbol references    |
+| `serena_get_symbols_overview`     | Get file symbol structure |
+| `serena_replace_symbol_body`      | Replace symbol code       |
+| `serena_replace_content`          | Regex-based replacement   |
+| `serena_read_file`                | Read file content         |
+| `serena_read_memory`              | Read from Serena memory   |
+| `serena_write_memory`             | Write to Serena memory    |
 
 ## Development Guidelines
 
@@ -878,6 +910,7 @@ triggers:
 ### Error Handling Pattern
 
 All agents should include:
+
 1. **Prerequisites check** - Validate tools/APIs available
 2. **Graceful degradation** - Fallback options when primary fails
 3. **Failure documentation** - Log failures for debugging
@@ -886,11 +919,13 @@ All agents should include:
 ### Inter-Agent Communication
 
 Agents communicate via:
+
 1. **Memory files** - Shared state in `.serena/memories/`
 2. **Linear issues** - Issue IDs as references
 3. **Return values** - Structured output format
 
 Standard output format:
+
 ```json
 {
   "status": "success|partial|failed",
@@ -904,17 +939,20 @@ Standard output format:
 ## Running the Agents
 
 ### Full Review Workflow
+
 ```
 "run full code review and create issues"
 "review and track all changes"
 ```
 
 ### Create Issues Only
+
 ```
 "create Linear issues from these findings: ..."
 ```
 
 ### Fix Specific Issue
+
 ```
 "/fix-linear GOO-31"
 "fix the issue in GOO-31"
@@ -923,11 +961,13 @@ Standard output format:
 ## Prerequisites
 
 ### Required Tools
+
 - CodeRabbit CLI (`coderabbit`)
 - Linters: `ruff`, `mypy`, `eslint`, `tsc`
 - Git
 
 ### Required API Access
+
 - Anthropic API (Claude models)
 - Linear API (issue management)
 - Serena MCP Server
@@ -937,6 +977,7 @@ Standard output format:
 ### Common Issues
 
 **CodeRabbit not found**
+
 ```bash
 # Install CodeRabbit CLI
 pip install coderabbit-cli
@@ -945,11 +986,13 @@ npm install -g @coderabbit/cli
 ```
 
 **Linear API errors**
+
 - Verify API token is set
 - Check team permissions
 - Ensure labels exist
 
 **Serena memory not found**
+
 - Initialize with `mcp__plugin_serena_serena__write_memory`
 - Check `.serena/memories/` directory exists
 
@@ -966,13 +1009,24 @@ npm run test:legacy        # Run legacy test suite
 
 **Test Framework**: Vitest with coverage support via @vitest/coverage-v8
 
+**Coverage Thresholds** (vitest.config.js):
+
+- Statements: 60%
+- Branches: 50%
+- Functions: 60%
+- Lines: 60%
+
 **Test Files**:
+
 - `tests/unit/context-store.test.js` - Storage, deduplication, partitioning
 - `tests/unit/context-index.test.js` - Trigram similarity, indexing
 - `tests/unit/priority-queue.test.js` - Queue ordering, retry logic
 - `tests/unit/gsd-executor.test.js` - Plan execution, commits, deviation rules
 - `tests/unit/phase-manager.test.js` - Phase/plan directory management
 - `tests/unit/errors.test.js` - Error types and handling
+
+**Test Patterns**: `tests/**/*.test.js`
+**Coverage Excludes**: `lib/test-workflow.js`, `lib/index.js`
 
 ### Linting
 
@@ -993,6 +1047,7 @@ npm publish                # Publish to NPM (requires auth)
 **Package Type**: ES Module (`"type": "module"`)
 **Node Requirement**: >= 18.0.0
 **Binary Entry Points**:
+
 - `goodflows` → `bin/goodflows.js` (CLI)
 - `goodflows-mcp-server` → `bin/mcp-server.js` (MCP server)
 - `goodflows-install` → `bin/install.sh` (shell installer)
@@ -1015,26 +1070,24 @@ goodflows install
 npm unlink -g goodflows
 ```
 
-### Make Commands (if Makefile exists)
+### NPM Install Scripts
 
 ```bash
-make help              # Show all available commands
-make install           # Install locally for Claude Code
-make install-global    # Install globally
-make install-cursor    # Install for Cursor
-make install-all       # Install for all supported CLIs
-make test              # Run tests
-make lint              # Lint markdown files
-make check-deps        # Check for required dependencies
-make init-memory       # Initialize memory files
-make clean             # Clean generated files
+npm run install:claude      # Install for Claude Code
+npm run install:cursor      # Install for Cursor
+npm run install:continue    # Install for Continue.dev
+npm run install:aider       # Install for Aider
+npm run install:windsurf    # Install for Windsurf
 ```
+
+### Make Commands
 
 ## Core Architecture Patterns
 
 ### 1. Multi-Agent Coordination Pattern
 
 **Key Insight**: Agents communicate through SessionContextManager, not direct calls. This enables:
+
 - Loose coupling between agents
 - Resumable workflows across LLM/IDE switches
 - Complete audit trail of all interactions
@@ -1044,12 +1097,12 @@ make clean             # Clean generated files
 ```javascript
 // Orchestrator creates session
 const session = new SessionContextManager();
-const sessionId = session.start({ trigger: 'code-review' });
-session.set('findings.all', findings);
+const sessionId = session.start({ trigger: "code-review" });
+session.set("findings.all", findings);
 
 // Subagent resumes session by ID (different process, possibly different LLM)
 const session = SessionContextManager.resume(sessionId);
-const findings = session.get('findings.all');  // Shared state preserved
+const findings = session.get("findings.all"); // Shared state preserved
 ```
 
 **Why this matters**: Traditional agent systems lose context when agents spawn. GoodFlows maintains context via persistent session files in `.goodflows/context/sessions/`, enabling workflows to survive crashes, IDE switches, or even switching from Claude to GPT-4.
@@ -1059,12 +1112,14 @@ const findings = session.get('findings.all');  // Shared state preserved
 **Problem**: Need both fast lookups AND historical queryability at scale.
 
 **Solution**: Dual storage system
+
 - **Context Store** (`.goodflows/context/`) - Fast, partitioned, indexed
 - **Serena Memory** (`.serena/memories/`) - Legacy, markdown-based, human-readable
 
 **Implementation**: `/lib/context-store.js` (876 LOC)
 
 **Key Features**:
+
 - **Monthly Partitioning**: Findings split into `2025-01.jsonl`, `2025-02.jsonl`, etc. for efficient querying
 - **Content-Hash Deduplication**: SHA-256 based exact duplicate detection
 - **Trigram Similarity**: Near-duplicate detection via `/lib/context-index.js` (544 LOC)
@@ -1081,8 +1136,8 @@ const findings = session.get('findings.all');  // Shared state preserved
 ```javascript
 // Findings auto-sorted on enqueue
 registry.createQueue(findings, {
-  throttleMs: 100,                    // Rate limiting
-  priorityThreshold: PRIORITY.HIGH,  // Only P1 and P2
+  throttleMs: 100, // Rate limiting
+  priorityThreshold: PRIORITY.HIGH, // Only P1 and P2
 });
 
 // Always processes highest priority first
@@ -1090,6 +1145,7 @@ const finding = registry.nextFinding(); // Returns P1 before P2 before P3
 ```
 
 **Priority Mapping**:
+
 - P1 (Urgent): `critical_security`
 - P2 (High): `potential_issue`
 - P3 (Normal): `refactor_suggestion`, `performance`
@@ -1102,6 +1158,7 @@ const finding = registry.nextFinding(); // Returns P1 before P2 before P3
 **Implementation**: `/lib/gsd-executor.js` (735 LOC), `/lib/phase-manager.js` (1110 LOC)
 
 **Commit Format**:
+
 ```
 {type}({phase}-{plan}): {task-name}
 
@@ -1134,17 +1191,21 @@ docs(02-01): complete plan  # Metadata commit
 ```javascript
 // Get recommended fix pattern
 const patterns = goodflows_pattern_recommend({
-  type: 'security',
-  description: 'Hardcoded API key in config'
+  type: "security",
+  description: "Hardcoded API key in config",
 });
 // Returns pattern with confidence score (0.0-1.0)
 
 // Record success/failure to update confidence
-goodflows_pattern_record_success({ patternId: 'env-var-secret' });
-goodflows_pattern_record_failure({ patternId: 'env-var-secret', reason: 'Tests failed' });
+goodflows_pattern_record_success({ patternId: "env-var-secret" });
+goodflows_pattern_record_failure({
+  patternId: "env-var-secret",
+  reason: "Tests failed",
+});
 ```
 
 **Storage**: `.goodflows/context/patterns/`
+
 - `patterns.json` - Pattern definitions with confidence scores
 - `history.jsonl` - Usage history for learning
 
@@ -1165,6 +1226,7 @@ goodflows_pattern_record_failure({ patternId: 'env-var-secret', reason: 'Tests f
 | `similar` | Moderate description similarity | No (informational) |
 
 **Usage**:
+
 ```javascript
 const result = goodflows_preflight_check({
   action: 'create_issue',
@@ -1192,21 +1254,23 @@ GoodFlows provides **mandatory tracking** for orchestrator visibility. All agent
 **Two patterns**:
 
 1. **Basic Tracking** (simple tasks):
+
 ```javascript
-session.trackFile('src/auth.ts', 'created');
-session.trackIssue('GOO-53', 'fixed');
-session.trackFinding({ type: 'security', file: 'auth.ts', description: '...' });
+session.trackFile("src/auth.ts", "created");
+session.trackIssue("GOO-53", "fixed");
+session.trackFinding({ type: "security", file: "auth.ts", description: "..." });
 ```
 
 2. **Work Units** (complex tasks - RECOMMENDED):
+
 ```javascript
 // Start work unit - groups all subsequent tracking
-session.startWork('fix-issue', { issueId: 'GOO-53', title: 'Thread Export' });
+session.startWork("fix-issue", { issueId: "GOO-53", title: "Thread Export" });
 
 // Track work (automatically linked to work unit)
-session.trackFile('src/export/index.ts', 'created');
-session.trackFile('src/export/formats/md.ts', 'created');
-session.trackIssue('GOO-53', 'fixed');
+session.trackFile("src/export/index.ts", "created");
+session.trackFile("src/export/formats/md.ts", "created");
+session.trackIssue("GOO-53", "fixed");
 
 // Complete work - calculates totals automatically
 const summary = session.completeWork({ success: true, endpoints: 5 });
@@ -1221,14 +1285,14 @@ const summary = session.completeWork({ success: true, endpoints: 5 });
 
 GoodFlows uses **token-limited context files** for agent prompts:
 
-| File | Purpose | Token Limit | Always Loaded |
-|------|---------|-------------|---------------|
-| `PROJECT.md` | Project vision and architecture | 2K | Yes |
-| `ROADMAP.md` | Phases and milestones | 3K | Planning only |
-| `STATE.md` | Current session memory | 1.5K | Yes |
-| `PLAN.md` | Current atomic task (XML format) | 1K | Task execution only |
-| `SUMMARY.md` | Execution history | 5K | Orchestrators only |
-| `ISSUES.md` | Deferred work queue | 2K | Planning only |
+| File         | Purpose                          | Token Limit | Always Loaded       |
+| ------------ | -------------------------------- | ----------- | ------------------- |
+| `PROJECT.md` | Project vision and architecture  | 2K          | Yes                 |
+| `ROADMAP.md` | Phases and milestones            | 3K          | Planning only       |
+| `STATE.md`   | Current session memory           | 1.5K        | Yes                 |
+| `PLAN.md`    | Current atomic task (XML format) | 1K          | Task execution only |
+| `SUMMARY.md` | Execution history                | 5K          | Orchestrators only  |
+| `ISSUES.md`  | Deferred work queue              | 2K          | Planning only       |
 
 **Auto-load budget**: 6K tokens total for agent prompts
 
@@ -1286,25 +1350,32 @@ Output: User model, validation, tests
 **Location**: `/lib/session-context.js` (handoff methods), `/bin/hooks/` (pre/post hooks)
 
 GoodFlows is **LLM-agnostic** and **IDE-agnostic**. You can switch from:
+
 - Claude → GPT-4 → Gemini → any LLM
 - Claude Code → Cursor → VS Code → Windsurf → any IDE with MCP
 
 **How it works**:
 
 1. **Export** (before switching):
+
 ```javascript
-goodflows_export_handoff()
+goodflows_export_handoff();
 // Returns: { project, github, sessions, findings, resumeInstructions }
 // Runs: bin/hooks/pre-handoff.js (checks uncommitted changes, etc.)
 ```
 
 2. **Generate Resume Prompt** (for next LLM):
+
 ```javascript
-goodflows_generate_resume_prompt({ sessionId: "session_xxx", style: "detailed" })
+goodflows_generate_resume_prompt({
+  sessionId: "session_xxx",
+  style: "detailed",
+});
 // Returns: Copy-paste prompt with full context for next LLM
 ```
 
 3. **Import** (after switching):
+
 ```javascript
 goodflows_import_handoff({ content: <PASTE_JSON_HERE> })
 // Restores: Sessions, findings, tracking state
@@ -1312,6 +1383,7 @@ goodflows_import_handoff({ content: <PASTE_JSON_HERE> })
 ```
 
 **What gets preserved**:
+
 - Project/GitHub context
 - Session state and metadata
 - Tracking progress (files, issues, findings)
@@ -1319,32 +1391,34 @@ goodflows_import_handoff({ content: <PASTE_JSON_HERE> })
 - Open findings and issues
 
 **Hooks**:
+
 - `bin/hooks/pre-handoff.js` - Validates before export (e.g., checks for uncommitted changes)
 - `bin/hooks/post-handoff.js` - Sets up after import (e.g., runs `npm install`)
 
 ## Library Module Reference
 
-| Module | LOC | Purpose |
-|--------|-----|---------|
-| `session-context.js` | 1310 | Multi-agent state & tracking |
-| `phase-manager.js` | 1110 | GSD phase/plan directory management |
-| `context-files.js` | 1072 | Context file (PROJECT, ROADMAP, etc.) I/O |
-| `sdk-adapter.js` | 903 | Claude Agent SDK integration |
-| `context-store.js` | 876 | Partitioned JSONL storage system |
-| `xml-task-parser.js` | 829 | PLAN.md XML parsing |
-| `plan-executor.js` | 770 | Subagent orchestration engine |
-| `agent-registry.js` | 742 | Agent invocation & validation |
-| `gsd-executor.js` | 735 | GSD plan execution with commits |
-| `priority-queue.js` | 604 | Priority-based processing queue |
-| `pattern-tracker.js` | 581 | Fix pattern learning system |
-| `context-index.js` | 544 | Trigram similarity & indexing |
-| `subagent-runner.js` | 538 | Subagent execution wrapper |
-| `task-splitter.js` | 455 | Complex task decomposition |
-| `index.js` | 347 | Main library exports |
-| `errors.js` | 204 | Error types & handling |
-| `debug.js` | 125 | Debug logging utilities |
+| Module               | LOC  | Purpose                                       |
+| -------------------- | ---- | --------------------------------------------- |
+| `session-context.js` | 1310 | Multi-agent state & tracking                  |
+| `phase-manager.js`   | 1110 | GSD phase/plan directory management           |
+| `context-files.js`   | 1072 | Context file (PROJECT, ROADMAP, etc.) I/O     |
+| `sdk-adapter.js`     | 903  | Claude Agent SDK integration                  |
+| `context-store.js`   | 876  | Partitioned JSONL storage system              |
+| `xml-task-parser.js` | 829  | PLAN.md XML parsing                           |
+| `test-workflow.js`   | 770  | Legacy test workflow (excluded from coverage) |
+| `plan-executor.js`   | 770  | Subagent orchestration engine                 |
+| `agent-registry.js`  | 742  | Agent invocation & validation                 |
+| `gsd-executor.js`    | 735  | GSD plan execution with commits               |
+| `priority-queue.js`  | 604  | Priority-based processing queue               |
+| `pattern-tracker.js` | 581  | Fix pattern learning system                   |
+| `context-index.js`   | 544  | Trigram similarity & indexing                 |
+| `subagent-runner.js` | 538  | Subagent execution wrapper                    |
+| `task-splitter.js`   | 455  | Complex task decomposition                    |
+| `index.js`           | 347  | Main library exports                          |
+| `errors.js`          | 204  | Error types & handling                        |
+| `debug.js`           | 125  | Debug logging utilities                       |
 
-**Total Library Code**: ~16,640 LOC
+**Total Library Code**: ~17,410 LOC
 
 ## Package Information
 
