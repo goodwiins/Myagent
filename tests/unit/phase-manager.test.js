@@ -56,15 +56,15 @@ describe('PhaseManager', () => {
       expect(result.phaseNumber).toBe(1);
       expect(result.phaseName).toBe('01-foundation');
 
-      // Check directory was created
+      // Check directory was created using fs.stat for reliability
       const phasePath = path.join(tempDir, '.goodflows', 'phases', '01-foundation');
-      const exists = await fs.access(phasePath).then(() => true).catch(() => false);
-      expect(exists).toBe(true);
+      const phaseStats = await fs.stat(phasePath);
+      expect(phaseStats.isDirectory()).toBe(true);
 
       // Check context file was created
       const contextPath = path.join(phasePath, '01-CONTEXT.md');
-      const contextExists = await fs.access(contextPath).then(() => true).catch(() => false);
-      expect(contextExists).toBe(true);
+      const contextStats = await fs.stat(contextPath);
+      expect(contextStats.isFile()).toBe(true);
     });
 
     it('should convert name to kebab-case', async () => {
@@ -167,10 +167,10 @@ describe('PhaseManager', () => {
       expect(result.planNumber).toBe(1);
       expect(result.taskCount).toBe(1);
 
-      // Check plan file was created
+      // Check plan file was created using fs.stat for reliability
       const planPath = path.join(tempDir, '.goodflows', 'phases', '01-foundation', '01-01-PLAN.md');
-      const exists = await fs.access(planPath).then(() => true).catch(() => false);
-      expect(exists).toBe(true);
+      const planStats = await fs.stat(planPath);
+      expect(planStats.isFile()).toBe(true);
     });
 
     it('should assign sequential plan numbers', async () => {
