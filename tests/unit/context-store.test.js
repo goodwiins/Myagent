@@ -88,7 +88,7 @@ describe('ContextStore', () => {
 
     it('should normalize absolute paths to relative', () => {
       const finding = {
-        file: process.cwd() + '/src/test.js',
+        file: join(process.cwd(), 'src', 'test.js'),
         type: 'bug',
         description: 'Test',
       };
@@ -96,7 +96,9 @@ describe('ContextStore', () => {
       store.addFinding(finding);
       const results = store.query({ limit: 1 });
 
-      expect(results[0].file).toBe('src/test.js');
+      // Normalize path separators for cross-platform compatibility
+      const normalizedPath = results[0].file.replace(/\\/g, '/');
+      expect(normalizedPath).toBe('src/test.js');
     });
   });
 
