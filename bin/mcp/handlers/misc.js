@@ -523,10 +523,12 @@ Returns combined content from context files based on options:
 - On task: Also loads PLAN.md
 - For orchestrators: Also loads SUMMARY.md
 
+If 'task' is provided, uses intelligent auto-context detection based on keywords.
 Respects a 6K token budget for auto-loaded context.`,
     inputSchema: {
       type: 'object',
       properties: {
+        task: { type: 'string', description: 'Task description for intelligent context detection' },
         agentType: { type: 'string', description: 'Agent type (e.g., orchestrator, fixer)' },
         isPlanning: { type: 'boolean', description: 'Whether in planning phase' },
         hasTask: { type: 'boolean', description: 'Whether there is an active task' },
@@ -1352,16 +1354,60 @@ await goodflows_context_query({ status: "open", limit: 10 })
     const { contextFileManager } = services;
 
     try {
+      // If task is provided, use intelligent auto-context detection
+      if (args.task) {
+        const { autoLoadContext } = await import('../../../lib/auto-context.js');
+        const result = await autoLoadContext(args.task, {
+          basePath: '.goodflows',
+          budgetTokens: 6000,
+        });
+
+        // Also run validation check
+        const validation = await contextFileManager._validateProjectContext();
+
+        const response = {
+          tokens: result.stats.totalTokens,
+          filesLoaded: result.loadedFiles.map(f => f.file),
+          content: result.content,
+          detection: result.detection,
+          stats: result.stats,
+          validation,
+        };
+
+        // Add prominent warning if mismatch detected
+        if (!validation.valid && validation.mismatchType) {
+          response.warning = validation.suggestion;
+          response.mismatchDetected = true;
+        }
+
+        return mcpResponse(response);
+      }
+
+      // Fallback to static rules
       const result = await contextFileManager.getAutoLoadContext({
         agentType: args.agentType,
         isPlanning: args.isPlanning,
         hasTask: args.hasTask,
       });
-      return mcpResponse({
+
+      const response = {
         tokens: result.tokens,
         filesLoaded: result.filesLoaded,
         content: result.content,
-      });
+      };
+
+      // Include validation info if available
+      if (result.validation) {
+        response.validation = result.validation;
+
+        // Add prominent warning if mismatch detected
+        if (!result.validation.valid && result.validation.mismatchType) {
+          response.warning = result.validation.suggestion;
+          response.mismatchDetected = true;
+        }
+      }
+
+      return mcpResponse(response);
     } catch (error) {
       return mcpError(error.message, 'AUTOLOAD_ERROR');
     }

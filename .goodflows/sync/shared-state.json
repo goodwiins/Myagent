@@ -123,7 +123,7 @@
     "modified": [],
     "deleted": []
   },
-  "lastUpdated": "2026-01-16T19:01:37.735Z",
+  "lastUpdated": "2026-01-16T20:17:42.979Z",
   "exports": {
     "claude": {
       "exportedAt": "2026-01-16T19:01:37.733Z",
@@ -131,6 +131,15 @@
       "contentHash": "75473213fdae",
       "stats": {
         "totalFindings": 10,
+        "trackedFiles": 0
+      }
+    },
+    "gemini": {
+      "exportedAt": "2026-01-16T20:17:42.978Z",
+      "role": "full",
+      "contentHash": "fe9309e519a8",
+      "stats": {
+        "totalFindings": 11,
         "trackedFiles": 0
       }
     }
