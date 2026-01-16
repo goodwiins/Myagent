@@ -7,24 +7,31 @@ import { PhaseManager, PHASE_STATUS, PLAN_STATUS } from '../../lib/phase-manager
 import { promises as fs } from 'fs';
 import path from 'path';
 import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 
 describe('PhaseManager', () => {
   let tempDir;
   let phaseManager;
 
   beforeEach(async () => {
-    // Create a temp directory for tests
-    tempDir = path.join(tmpdir(), `goodflows-test-${Date.now()}`);
+    // Create a unique temp directory for each test using UUID
+    const uniqueId = randomUUID();
+    tempDir = path.join(tmpdir(), `goodflows-test-${uniqueId}`);
     await fs.mkdir(tempDir, { recursive: true });
+    // Verify directory exists before proceeding
+    await fs.stat(tempDir);
     phaseManager = new PhaseManager({ basePath: tempDir });
   });
 
   afterEach(async () => {
-    // Clean up temp directory
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
+    // Clean up temp directory with retry for Windows
+    for (let i = 0; i < 3; i++) {
+      try {
+        await fs.rm(tempDir, { recursive: true, force: true });
+        break;
+      } catch {
+        if (i < 2) await new Promise(r => setTimeout(r, 100));
+      }
     }
   });
 
