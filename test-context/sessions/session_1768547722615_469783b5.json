@@ -1,0 +1,83 @@
+{
+  "id": "session_1768547722615_469783b5",
+  "state": "completed",
+  "metadata": {
+    "trigger": "test",
+    "branch": null,
+    "user": null,
+    "config": {}
+  },
+  "timestamps": {
+    "created": "2026-01-16T07:15:22.615Z",
+    "started": null,
+    "updated": "2026-01-16T07:15:22.615Z",
+    "completed": "2026-01-16T07:15:22.615Z"
+  },
+  "context": {
+    "findings": {},
+    "issues": {},
+    "fixes": {},
+    "errors": [],
+    "custom": {}
+  },
+  "invocations": [],
+  "events": [],
+  "checkpoints": [],
+  "stats": {
+    "agentsInvoked": 0,
+    "findingsProcessed": 0,
+    "issuesCreated": 0,
+    "fixesApplied": 0,
+    "errorsEncountered": 0
+  },
+  "tracking": {
+    "files": {
+      "created": [],
+      "modified": [],
+      "deleted": []
+    },
+    "issues": {
+      "created": [],
+      "fixed": [],
+      "skipped": [],
+      "failed": []
+    },
+    "findings": [],
+    "work": [],
+    "currentWork": null,
+    "plans": {
+      "active": null,
+      "completed": [],
+      "history": []
+    }
+  },
+  "summary": {
+    "totalIssues": 5,
+    "issuesCreated": 0,
+    "fixed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "filesCreated": 0,
+    "filesModified": 0,
+    "filesTotal": 0,
+    "findingsProcessed": 0,
+    "errorsEncountered": 0,
+    "agentsInvoked": 0,
+    "duration": 0,
+    "_derived": {
+      "totalIssues": 0,
+      "issuesCreated": 0,
+      "fixed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "filesCreated": 0,
+      "filesModified": 0,
+      "filesTotal": 0,
+      "findingsProcessed": 0,
+      "errorsEncountered": 0,
+      "agentsInvoked": 0,
+      "duration": 0
+    },
+    "_hasConflicts": false
+  }
+}

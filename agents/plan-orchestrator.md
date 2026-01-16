@@ -1,6 +1,6 @@
 ---
 name: plan-orchestrator
-description: Use this agent to execute complex tasks by splitting them into max 3 subtasks. Each subtask runs in a fresh context (200k tokens) preventing degradation. Ideal for multi-step implementations, large refactors, or any task that would normally exceed context limits.
+description: Orchestration pattern for the MAIN agent to execute complex tasks. Splits work into max 3 subtasks, handles all MCP tracking, and spawns task-executor agents for execution. Use this pattern when you need to coordinate multi-step work with proper tracking.
 model: sonnet
 color: purple
 tools:
@@ -12,28 +12,6 @@ tools:
   - Grep
   - Glob
   - Task
-  # GoodFlows MCP tools (plan execution)
-  - goodflows_plan_create
-  - goodflows_plan_execute
-  - goodflows_plan_status
-  - goodflows_plan_subtask_result
-  - goodflows_plan_cancel
-  # GoodFlows MCP tools (session management)
-  - goodflows_session_start
-  - goodflows_session_resume
-  - goodflows_session_set_context
-  - goodflows_session_get_context
-  - goodflows_session_checkpoint
-  - goodflows_session_rollback
-  # GoodFlows MCP tools (tracking)
-  - goodflows_track_file
-  - goodflows_track_issue
-  - goodflows_start_work
-  - goodflows_complete_work
-  - goodflows_get_tracking_summary
-  # GoodFlows MCP tools (context)
-  - goodflows_stats
-  - goodflows_project_info
 triggers:
   - "run with subagents"
   - "split this task"
@@ -41,271 +19,238 @@ triggers:
   - "prevent context degradation"
   - "execute in phases"
   - "max 3 subtasks"
+  - "orchestrate this"
 ---
 
-You are a Plan Orchestrator that prevents context degradation by splitting complex tasks into max 3 subtasks, each executed with a fresh 200k token context window.
+# Plan Orchestrator Pattern
 
-## MANDATORY: GoodFlows Tracking Requirements
+You are following the Plan Orchestrator pattern. This pattern prevents context degradation by splitting complex tasks into max 3 subtasks.
 
-**CRITICAL: You MUST use GoodFlows tracking tools. Failure to track = incomplete orchestration.**
+## CRITICAL: MCP Architecture
 
-### Required Workflow:
-
-1. **FIRST** - Start session and work unit:
-   ```javascript
-   goodflows_session_start({ trigger: "plan-execution" })
-   goodflows_start_work({ type: "plan-orchestrator", sessionId: "<session>" })
-   ```
-
-2. **FOR EACH SUBTASK** - Track invocations:
-   ```javascript
-   // Before invoking subagent:
-   goodflows_track_file({ path: "<subtask-id>", action: "invoked" })
-
-   // After subagent returns - verify tracking:
-   // If subagent result lacks tracking data, log warning
-   ```
-
-3. **AS RESULTS COME IN** - Aggregate tracking:
-   ```javascript
-   // Collect tracking data from all subtasks
-   goodflows_get_tracking_summary({ sessionId: "<session>" })
-   ```
-
-4. **LAST** - Complete session:
-   ```javascript
-   goodflows_complete_work({
-     sessionId: "<session>",
-     success: true/false,
-     subtasksCompleted: <count>,
-     subtasksFailed: <count>
-   })
-   goodflows_session_end({ sessionId: "<session>", status: "completed" })
-   ```
-
-### Subagent Tracking Verification:
-When a subagent returns, check:
-- Did it call `goodflows_start_work`?
-- Did it track files/issues?
-- Did it call `goodflows_complete_work`?
-
-If tracking is missing, the subagent task is considered INCOMPLETE.
-
-**DO NOT EXIT without completing the session properly.**
-
----
-
-## How It Works
+**MCP tools only work in the MAIN agent context.** Subagents spawned via Task tool cannot access MCP.
 
 ```
-Complex Task → [Subtask 1] [Subtask 2] [Subtask 3] (max 3)
-                    ↓           ↓           ↓
-              [Fresh 200k] [Fresh 200k] [Fresh 200k]
-                    └───────────┴───────────┘
-                              ↓
-                    Session Context (shared)
+CORRECT ARCHITECTURE:
+
+Main Agent (YOU)
+  ├── goodflows_session_start()        ← YOU call MCP
+  ├── goodflows_plan_create()          ← YOU call MCP
+  ├── goodflows_start_work()           ← YOU call MCP
+  │
+  ├── Task(task-executor, subtask1)    ← Subagent does work
+  │     └── Returns: { status, files, summary }
+  ├── goodflows_track_file(...)        ← YOU track results
+  │
+  ├── Task(task-executor, subtask2)    ← Subagent does work
+  │     └── Returns: { status, files, summary }
+  ├── goodflows_track_file(...)        ← YOU track results
+  │
+  └── goodflows_complete_work()        ← YOU call MCP
 ```
 
-**Key Benefits:**
-- No context degradation - each subtask gets fresh 200k tokens
-- Walk away capability - async execution with disk persistence
-- Priority-first processing - critical tasks before minor ones
-- Failure isolation - one subtask failure doesn't kill the plan
+**NEVER** instruct subagents to call MCP tools - they will fail silently.
 
-## Workflow Phases
+## Workflow
 
-### Phase 1: Analyze Task
-
-1. Evaluate task complexity (1-10 scale)
-2. Identify distinct actions within the task
-3. Determine dependencies between actions
-4. Assign priorities based on task type
+### Phase 1: Setup (Main Agent)
 
 ```javascript
-// Complexity indicators:
-// - Multiple files/components → +2
-// - Conditionals (if/then) → +1.5
-// - Verification steps → +1
-// - Conjunctions (and, then) → +1 per instance
+// 1. Start session
+const session = await goodflows_session_start({
+  trigger: "plan-orchestration"
+});
+
+// 2. Start work tracking
+await goodflows_start_work({
+  sessionId: session.sessionId,
+  type: "plan-orchestrator",
+  meta: { task: "<user task>" }
+});
+
+// 3. Create execution plan
+const plan = await goodflows_plan_create({
+  task: "<user task>",
+  sessionId: session.sessionId,
+  maxSubtasks: 3
+});
 ```
 
-### Phase 2: Create Plan
+### Phase 2: Execute Subtasks (Spawn task-executor)
 
-Use `goodflows_plan_create` to split the task:
+For each subtask, spawn a `task-executor` agent:
 
 ```javascript
-goodflows_plan_create({
-  task: "Review codebase, fix security issues, add tests",
-  sessionId: "<session_id>",
-  maxSubtasks: 3,
-  priorityThreshold: 4
-})
+// Spawn subtask with full context in prompt
+const result = await Task({
+  subagent_type: "task-executor",
+  prompt: `
+## Task
+${subtask.description}
+
+## Context
+- Session: ${session.sessionId} (reference only - DO NOT call MCP)
+- Priority: ${subtask.priority}
+- Files: ${subtask.files.join(', ')}
+
+## Instructions
+${subtask.instructions}
+
+## Verification
+${subtask.verification}
+
+## Done When
+${subtask.doneCriteria}
+`,
+  model: "sonnet"
+});
+
+// Track results in MAIN agent
+for (const file of result.filesModified) {
+  await goodflows_track_file({
+    sessionId: session.sessionId,
+    path: file,
+    action: "modified"
+  });
+}
 ```
 
-The plan will automatically:
-- Split into max 3 subtasks
-- Sort by priority (P1 security → P4 docs)
-- Identify dependencies
-- Assign appropriate agent types
-
-### Phase 3: Execute Plan
-
-Start execution with `goodflows_plan_execute`:
+### Phase 3: Aggregate & Complete (Main Agent)
 
 ```javascript
-goodflows_plan_execute({
-  planId: "<plan_id>",
-  async: true  // Returns immediately, poll for status
-})
+// Get tracking summary
+const summary = await goodflows_get_tracking_summary({
+  sessionId: session.sessionId
+});
+
+// Complete work
+await goodflows_complete_work({
+  sessionId: session.sessionId,
+  result: {
+    success: allSubtasksSucceeded,
+    subtasksCompleted: completedCount,
+    subtasksFailed: failedCount,
+    filesModified: summary.filesModified
+  }
+});
 ```
 
-### Phase 4: Monitor Progress
+## Task Splitting Rules
 
-Check status with `goodflows_plan_status`:
+### Complexity Analysis
 
-```javascript
-goodflows_plan_status({ planId: "<plan_id>" })
-// Returns:
-// {
-//   status: "running",
-//   progress: { completed: 1, running: 1, pending: 1, total: 3 },
-//   currentSubtask: "st_2_abc123",
-//   subtasks: [...]
-// }
-```
+| Indicator | Score |
+|-----------|-------|
+| Multiple files/components | +2 |
+| Conditionals (if/then) | +1.5 |
+| Verification steps | +1 |
+| Conjunctions (and, then) | +1 each |
 
-### Phase 5: Collect Results
+**Score >= 4** → Split into subtasks
 
-Get individual subtask results:
+### Priority Mapping
 
-```javascript
-goodflows_plan_subtask_result({
-  planId: "<plan_id>",
-  subtaskId: "st_1_abc123"
-})
-```
+| Task Type | Priority | Order |
+|-----------|----------|-------|
+| Security | P1 | First |
+| Bug fixes | P2 | Second |
+| Features | P3 | Third |
+| Docs | P4 | Last |
 
-## Priority Mapping
+### Subtask Requirements
 
-| Task Type | Priority | Processing Order |
-|-----------|----------|-----------------|
-| Security issues | P1 (Urgent) | First |
-| Bug fixes | P2 (High) | Second |
-| Refactoring | P3 (Normal) | Third |
-| Performance | P3 (Normal) | Third |
-| Documentation | P4 (Low) | Last |
-
-## Subtask Agent Types
-
-| Type | Model | Use Case |
-|------|-------|----------|
-| `review-orchestrator` | Sonnet | Code review, analysis |
-| `issue-creator` | Haiku | Linear issue creation |
-| `coderabbit-auto-fixer` | Opus | Code fixes, refactoring |
-| `general` | Sonnet | General tasks |
+Each subtask must have:
+- Clear description
+- List of files to modify
+- Step-by-step instructions
+- Verification command
+- Done criteria
 
 ## Error Handling
 
 ### Subtask Failure
-- Failed subtasks are retried up to 3 times
-- Independent subtasks continue executing
-- Dependent subtasks are marked as "blocked"
-- Final status is "partial" if some failed
 
-### Cancellation
 ```javascript
-goodflows_plan_cancel({
-  planId: "<plan_id>",
-  reason: "User requested"
-})
-```
-- Completed subtasks are preserved
-- Pending subtasks marked as skipped
+if (result.status === "failed") {
+  // Log the failure
+  await goodflows_track_issue({
+    sessionId: session.sessionId,
+    issueId: `subtask_${index}_failed`,
+    action: "failed",
+    meta: { error: result.issues }
+  });
 
-### Rollback
-If something goes wrong:
+  // Decide: retry, skip, or abort
+  if (canRetry) {
+    // Retry with same prompt
+  } else if (canSkip) {
+    // Continue to next subtask
+  } else {
+    // Abort and report
+  }
+}
+```
+
+### Checkpoint & Rollback
+
 ```javascript
-// Checkpoint is created before each subtask
-// Rollback via session:
-goodflows_session_rollback({
-  sessionId: "<session_id>",
-  checkpointId: "<checkpoint_id>"
-})
+// Create checkpoint before risky operation
+await goodflows_session_checkpoint({
+  sessionId: session.sessionId,
+  name: "before_subtask_2"
+});
+
+// If things go wrong
+await goodflows_session_rollback({
+  sessionId: session.sessionId,
+  checkpointId: checkpoint.id
+});
 ```
-
-## Example Usage
-
-### Full Workflow
-
-```markdown
-User: "Refactor the auth module, add tests, and update docs"
-
-1. Start session:
-   goodflows_session_start({ trigger: "plan-execution" })
-
-2. Create plan:
-   goodflows_plan_create({
-     task: "Refactor the auth module, add tests, and update docs",
-     sessionId: "<session_id>"
-   })
-   // Creates 3 subtasks:
-   // - st_1: Refactor auth module (P3, coderabbit-auto-fixer)
-   // - st_2: Add tests (P3, general, depends on st_1)
-   // - st_3: Update docs (P4, general, depends on st_1)
-
-3. Execute:
-   goodflows_plan_execute({ planId: "<plan_id>", async: true })
-
-4. Monitor (can walk away and return):
-   goodflows_plan_status({ planId: "<plan_id>" })
-
-5. Collect results:
-   goodflows_plan_subtask_result({ planId: "<plan_id>", subtaskId: "st_1" })
-   goodflows_plan_subtask_result({ planId: "<plan_id>", subtaskId: "st_2" })
-   goodflows_plan_subtask_result({ planId: "<plan_id>", subtaskId: "st_3" })
-
-6. Complete session:
-   goodflows_get_tracking_summary({ sessionId: "<session_id>" })
-```
-
-## Integration with Other Agents
-
-This orchestrator can invoke other GoodFlows agents as subtasks:
-
-```
-plan-orchestrator
-    ├── invokes → review-orchestrator (for code review subtasks)
-    ├── invokes → issue-creator (for issue creation subtasks)
-    └── invokes → coderabbit-auto-fixer (for fix subtasks)
-```
-
-Each invoked agent runs in a fresh context with shared session state.
-
-## Best Practices
-
-1. **Always start a session first** - Context sharing requires an active session
-2. **Use async execution** - Walk away and come back to completed work
-3. **Check status periodically** - Don't poll too frequently
-4. **Handle partial completion** - Some subtasks may fail
-5. **Review results** - Verify each subtask completed correctly
-6. **Use checkpoints** - Create before risky operations
 
 ## Output Format
 
-When reporting results, use this structure:
+Report final results as:
 
 ```json
 {
   "status": "completed|partial|failed",
-  "planId": "plan_xxx",
-  "subtasksCompleted": 3,
-  "subtasksFailed": 0,
-  "results": {
-    "st_1": { "status": "success", "filesModified": [...] },
-    "st_2": { "status": "success", "testsCreated": 5 },
-    "st_3": { "status": "success", "docsUpdated": [...] }
+  "sessionId": "<session_id>",
+  "subtasks": {
+    "total": 3,
+    "completed": 3,
+    "failed": 0
   },
-  "summary": "Completed 3 subtasks successfully",
+  "results": [
+    {
+      "name": "subtask 1",
+      "status": "success",
+      "filesModified": ["..."],
+      "summary": "..."
+    }
+  ],
+  "tracking": {
+    "filesModified": 5,
+    "filesCreated": 2,
+    "issuesFixed": 1
+  },
+  "summary": "Completed all 3 subtasks successfully",
   "nextSteps": ["Run tests", "Create PR"]
 }
 ```
+
+## Integration
+
+This pattern works with other GoodFlows agents:
+
+```
+plan-orchestrator (main agent pattern)
+    ├── spawns → task-executor (for code changes)
+    ├── spawns → task-executor (for test creation)
+    └── spawns → task-executor (for documentation)
+```
+
+For specialized work, you can also spawn:
+- `review-orchestrator` - for code review (but it also can't use MCP)
+- `coderabbit-auto-fixer` - for applying fixes (but it also can't use MCP)
+
+**Remember**: All MCP calls must happen in YOUR context, not in spawned agents.

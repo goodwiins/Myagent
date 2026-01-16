@@ -335,3 +335,196 @@ describe('createPriorityQueue', () => {
     expect(queue.maxRetries).toBe(5);
   });
 });
+
+describe('processBatch race condition fixes', () => {
+  let queue;
+
+  beforeEach(() => {
+    queue = new PriorityQueue();
+  });
+
+  describe('concurrent item processing', () => {
+    it('should handle multiple items in parallel without race conditions', async () => {
+      // Add 3 items to process in batch
+      queue.enqueue({ type: 'critical_security', description: 'Security issue 1' });
+      queue.enqueue({ type: 'potential_issue', description: 'Bug issue 2' });
+      queue.enqueue({ type: 'refactor_suggestion', description: 'Refactor issue 3' });
+
+      expect(queue.size()).toBe(3);
+
+      // Handler that simulates async processing with different completion times
+      const processedItems = [];
+      const handler = async (item) => {
+        // Simulate variable processing time
+        const delay = item.type === 'critical_security' ? 50 :
+                      item.type === 'potential_issue' ? 30 : 10;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        processedItems.push(item.description);
+        return { processed: item.description };
+      };
+
+      // Process batch with concurrency
+      const results = await queue.processBatch(handler, 3);
+
+      // Verify all items completed
+      expect(results).toHaveLength(3);
+      expect(results.every((r) => r.status === 'completed')).toBe(true);
+
+      // Verify queue is empty (all items dequeued)
+      expect(queue.isEmpty()).toBe(true);
+
+      // Verify all items moved to processed list
+      expect(queue.processed).toHaveLength(3);
+
+      // Verify each item has correct metadata
+      for (const processedItem of queue.processed) {
+        expect(processedItem._queueMeta.state).toBe(ITEM_STATE.COMPLETED);
+        expect(processedItem._queueMeta.completedAt).toBeDefined();
+        expect(processedItem._queueMeta.result).toBeDefined();
+      }
+
+      // Verify no items failed
+      expect(queue.failed).toHaveLength(0);
+
+      // Verify all 3 items were processed
+      expect(processedItems).toHaveLength(3);
+    });
+
+    it('should process items with correct individual results', async () => {
+      queue.enqueue({ type: 'critical_security', id: 'item1' });
+      queue.enqueue({ type: 'potential_issue', id: 'item2' });
+      queue.enqueue({ type: 'refactor_suggestion', id: 'item3' });
+
+      // Handler that returns item-specific results
+      const handler = async (item) => {
+        return { itemId: item.id, processed: true };
+      };
+
+      const results = await queue.processBatch(handler, 3);
+
+      // Verify each result matches the correct item
+      expect(results[0].result.itemId).toBe('item1');
+      expect(results[1].result.itemId).toBe('item2');
+      expect(results[2].result.itemId).toBe('item3');
+
+      // Verify results are stored in processed items
+      expect(queue.processed[0]._queueMeta.result.itemId).toBe('item1');
+      expect(queue.processed[1]._queueMeta.result.itemId).toBe('item2');
+      expect(queue.processed[2]._queueMeta.result.itemId).toBe('item3');
+    });
+  });
+
+  describe('error handling in batch', () => {
+    it('should properly capture failures for individual items in batch', async () => {
+      queue.enqueue({ type: 'critical_security', id: 'item1' });
+      queue.enqueue({ type: 'potential_issue', id: 'item2' }); // This will fail
+      queue.enqueue({ type: 'refactor_suggestion', id: 'item3' });
+
+      // Handler that throws error for item2
+      const handler = async (item) => {
+        if (item.id === 'item2') {
+          throw new Error('Processing failed for item2');
+        }
+        return { processed: item.id };
+      };
+
+      const results = await queue.processBatch(handler, 3);
+
+      // Verify we got 3 results
+      expect(results).toHaveLength(3);
+
+      // Verify item1 succeeded
+      expect(results[0].status).toBe('completed');
+      expect(results[0].item.id).toBe('item1');
+
+      // Verify item2 failed
+      expect(results[1].status).toBe('failed');
+      expect(results[1].item.id).toBe('item2');
+      expect(results[1].error).toBe('Processing failed for item2');
+
+      // Verify item3 succeeded
+      expect(results[2].status).toBe('completed');
+      expect(results[2].item.id).toBe('item3');
+
+      // Verify processed list only contains successful items
+      expect(queue.processed).toHaveLength(2);
+      expect(queue.processed.map((p) => p.id).sort()).toEqual(['item1', 'item3']);
+
+      // Verify failed item is NOT in processed list
+      expect(queue.processed.find((p) => p.id === 'item2')).toBeUndefined();
+
+      // Note: Failed items are requeued if under maxRetries, not immediately in failed list
+      // Since default maxRetries is 3, item2 should be requeued
+      expect(queue.items.find((i) => i.id === 'item2')).toBeDefined();
+      expect(queue.items.find((i) => i.id === 'item2')._queueMeta.attempts).toBe(1);
+    });
+
+    it('should track error messages correctly for each failed item', async () => {
+      queue.enqueue({ type: 'critical_security', id: 'item1' }); // Will fail
+      queue.enqueue({ type: 'potential_issue', id: 'item2' }); // Will fail
+      queue.enqueue({ type: 'refactor_suggestion', id: 'item3' }); // Will succeed
+
+      const handler = async (item) => {
+        if (item.id === 'item1') {
+          throw new Error('Error A for item1');
+        }
+        if (item.id === 'item2') {
+          throw new Error('Error B for item2');
+        }
+        return { success: true };
+      };
+
+      const results = await queue.processBatch(handler, 3);
+
+      // Verify error messages are item-specific
+      expect(results[0].error).toBe('Error A for item1');
+      expect(results[1].error).toBe('Error B for item2');
+      expect(results[2].status).toBe('completed');
+
+      // Verify error metadata is stored correctly
+      const requeuedItem1 = queue.items.find((i) => i.id === 'item1');
+      const requeuedItem2 = queue.items.find((i) => i.id === 'item2');
+
+      expect(requeuedItem1._queueMeta.lastError).toBe('Error A for item1');
+      expect(requeuedItem2._queueMeta.lastError).toBe('Error B for item2');
+    });
+
+    it('should handle mixed success and failures without corruption', async () => {
+      // Add 5 items with alternating success/failure pattern
+      queue.enqueue({ type: 'critical_security', id: 'pass1' });
+      queue.enqueue({ type: 'potential_issue', id: 'fail1' });
+      queue.enqueue({ type: 'refactor_suggestion', id: 'pass2' });
+      queue.enqueue({ type: 'performance', id: 'fail2' });
+      queue.enqueue({ type: 'documentation', id: 'pass3' });
+
+      const handler = async (item) => {
+        // Simulate random async delays
+        await new Promise((resolve) => setTimeout(resolve, Math.random() * 50));
+
+        if (item.id.startsWith('fail')) {
+          throw new Error(`Failure for ${item.id}`);
+        }
+        return { itemId: item.id };
+      };
+
+      const results = await queue.processBatch(handler, 5);
+
+      // Verify correct count
+      expect(results).toHaveLength(5);
+
+      // Verify successful items
+      const successful = results.filter((r) => r.status === 'completed');
+      expect(successful).toHaveLength(3);
+      expect(successful.map((s) => s.item.id).sort()).toEqual(['pass1', 'pass2', 'pass3']);
+
+      // Verify failed items
+      const failed = results.filter((r) => r.status === 'failed');
+      expect(failed).toHaveLength(2);
+      expect(failed.map((f) => f.item.id).sort()).toEqual(['fail1', 'fail2']);
+
+      // Verify state consistency
+      expect(queue.processed.map((p) => p.id).sort()).toEqual(['pass1', 'pass2', 'pass3']);
+      expect(queue.items.filter((i) => i.id.startsWith('fail'))).toHaveLength(2);
+    });
+  });
+});

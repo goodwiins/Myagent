@@ -27,9 +27,36 @@ GoodFlows is a multi-agent AI system for automated code review, issue tracking, 
 
 | Agent                      | Model  | Purpose                         |
 | -------------------------- | ------ | ------------------------------- |
+| `plan-orchestrator.md`     | Sonnet | Main agent orchestration pattern |
+| `task-executor.md`         | Sonnet | Lightweight subtask execution   |
 | `review-orchestrator.md`   | Sonnet | Coordinates review lifecycle    |
 | `issue-creator.md`         | Haiku  | Creates Linear issues           |
 | `coderabbit-auto-fixer.md` | Opus   | Applies fixes with verification |
+
+## CRITICAL: MCP Tool Access in Subagents
+
+**MCP tools are NOT available in background subagents.** This is a Claude Code limitation.
+
+### Correct Architecture
+
+```
+Main Agent (has MCP access)
+  ├── goodflows_session_start()     ← MCP call in MAIN
+  ├── goodflows_start_work()        ← MCP call in MAIN
+  │
+  ├── Task(task-executor)           ← Subagent (NO MCP)
+  │     └── Returns: { files, status }
+  ├── goodflows_track_file()        ← MCP call in MAIN
+  │
+  └── goodflows_complete_work()     ← MCP call in MAIN
+```
+
+### Rules
+
+1. **Main agent handles all MCP calls** - session, tracking, Linear
+2. **Subagents do execution only** - Read, Write, Edit, Bash
+3. **Pass context via prompt** - not via MCP session
+4. **Track results after subagent returns** - in main agent
 
 ## Shared Configuration
 

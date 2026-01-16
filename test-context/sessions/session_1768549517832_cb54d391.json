@@ -1,0 +1,54 @@
+{
+  "id": "session_1768549517832_cb54d391",
+  "state": "created",
+  "metadata": {
+    "trigger": "test",
+    "branch": null,
+    "user": null,
+    "config": {}
+  },
+  "timestamps": {
+    "created": "2026-01-16T07:45:17.832Z",
+    "started": null,
+    "updated": "2026-01-16T07:45:17.832Z",
+    "completed": null
+  },
+  "context": {
+    "findings": {},
+    "issues": {},
+    "fixes": {},
+    "errors": [],
+    "custom": {}
+  },
+  "invocations": [],
+  "events": [],
+  "checkpoints": [],
+  "stats": {
+    "agentsInvoked": 0,
+    "findingsProcessed": 0,
+    "issuesCreated": 0,
+    "fixesApplied": 0,
+    "errorsEncountered": 0
+  },
+  "tracking": {
+    "files": {
+      "created": [],
+      "modified": [],
+      "deleted": []
+    },
+    "issues": {
+      "created": [],
+      "fixed": [],
+      "skipped": [],
+      "failed": []
+    },
+    "findings": [],
+    "work": [],
+    "currentWork": null,
+    "plans": {
+      "active": null,
+      "completed": [],
+      "history": []
+    }
+  }
+}
