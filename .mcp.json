@@ -4,13 +4,6 @@
       "command": "node",
       "args": ["/Users/goodwiinz/development/Myagent/bin/mcp-server.js"],
       "cwd": "/Users/goodwiinz/development/Myagent"
-    },
-    "linear": {
-      "command": "npx",
-      "args": ["@anthropic-ai/linear-mcp-server"],
-      "env": {
-        "LINEAR_API_KEY": "YOUR_LINEAR_API_KEY"
-      }
     }
   }
 }

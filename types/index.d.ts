@@ -1,7 +1,384 @@
 /**
  * GoodFlows TypeScript Definitions
  * @module goodflows
+ *
+ * Includes comprehensive type definitions for:
+ * - GoodFlows core components (Context Store, Priority Queue, Session Manager, etc.)
+ * - Claude Agent SDK integration types
+ * - MCP server configurations
+ * - Hook system types
  */
+
+// ============================================================
+// Claude Agent SDK Types (Compatible with @anthropic-ai/claude-agent-sdk)
+// ============================================================
+
+/**
+ * Agent definition for programmatic subagent configuration.
+ * Used with the `agents` option in query().
+ */
+export interface SDKAgentDefinition {
+  /** Natural language description of when to use this agent */
+  description: string;
+  /** Array of allowed tool names. If omitted, inherits all tools */
+  tools?: string[];
+  /** The agent's system prompt */
+  prompt: string;
+  /** Model override for this agent */
+  model?: 'sonnet' | 'opus' | 'haiku' | 'inherit';
+}
+
+/**
+ * Permission modes for the SDK session
+ */
+export type SDKPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+
+/**
+ * Setting sources for filesystem configuration
+ */
+export type SDKSettingSource = 'user' | 'project' | 'local';
+
+/**
+ * MCP server configuration - stdio transport
+ */
+export interface SDKMcpStdioServerConfig {
+  type?: 'stdio';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+/**
+ * MCP server configuration - SSE transport
+ */
+export interface SDKMcpSSEServerConfig {
+  type: 'sse';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * MCP server configuration - HTTP transport
+ */
+export interface SDKMcpHttpServerConfig {
+  type: 'http';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Union of all MCP server configurations
+ */
+export type SDKMcpServerConfig =
+  | SDKMcpStdioServerConfig
+  | SDKMcpSSEServerConfig
+  | SDKMcpHttpServerConfig;
+
+/**
+ * Hook event types supported by the SDK
+ */
+export type SDKHookEvent =
+  | 'PreToolUse'
+  | 'PostToolUse'
+  | 'PostToolUseFailure'
+  | 'Notification'
+  | 'UserPromptSubmit'
+  | 'SessionStart'
+  | 'SessionEnd'
+  | 'Stop'
+  | 'SubagentStart'
+  | 'SubagentStop'
+  | 'PreCompact'
+  | 'PermissionRequest';
+
+/**
+ * Base hook input that all hook types extend
+ */
+export interface SDKBaseHookInput {
+  session_id: string;
+  transcript_path: string;
+  cwd: string;
+  permission_mode?: string;
+  hook_event_name: SDKHookEvent;
+}
+
+/**
+ * PreToolUse hook input
+ */
+export interface SDKPreToolUseHookInput extends SDKBaseHookInput {
+  hook_event_name: 'PreToolUse';
+  tool_name: string;
+  tool_input: unknown;
+}
+
+/**
+ * PostToolUse hook input
+ */
+export interface SDKPostToolUseHookInput extends SDKBaseHookInput {
+  hook_event_name: 'PostToolUse';
+  tool_name: string;
+  tool_input: unknown;
+  tool_response: unknown;
+}
+
+/**
+ * SessionStart hook input
+ */
+export interface SDKSessionStartHookInput extends SDKBaseHookInput {
+  hook_event_name: 'SessionStart';
+  source: 'startup' | 'resume' | 'clear' | 'compact';
+}
+
+/**
+ * SubagentStop hook input
+ */
+export interface SDKSubagentStopHookInput extends SDKBaseHookInput {
+  hook_event_name: 'SubagentStop';
+  stop_hook_active: boolean;
+}
+
+/**
+ * Stop hook input
+ */
+export interface SDKStopHookInput extends SDKBaseHookInput {
+  hook_event_name: 'Stop';
+  stop_hook_active: boolean;
+}
+
+/**
+ * Union of all hook input types
+ */
+export type SDKHookInput =
+  | SDKPreToolUseHookInput
+  | SDKPostToolUseHookInput
+  | SDKSessionStartHookInput
+  | SDKSubagentStopHookInput
+  | SDKStopHookInput
+  | SDKBaseHookInput;
+
+/**
+ * Synchronous hook output
+ */
+export interface SDKSyncHookOutput {
+  continue?: boolean;
+  suppressOutput?: boolean;
+  stopReason?: string;
+  decision?: 'approve' | 'block';
+  systemMessage?: string;
+  reason?: string;
+  hookSpecificOutput?: {
+    hookEventName: SDKHookEvent;
+    permissionDecision?: 'allow' | 'deny' | 'ask';
+    permissionDecisionReason?: string;
+    updatedInput?: Record<string, unknown>;
+    additionalContext?: string;
+  };
+}
+
+/**
+ * Async hook output
+ */
+export interface SDKAsyncHookOutput {
+  async: true;
+  asyncTimeout?: number;
+}
+
+/**
+ * Union of hook output types
+ */
+export type SDKHookOutput = SDKSyncHookOutput | SDKAsyncHookOutput;
+
+/**
+ * Hook callback function signature
+ */
+export type SDKHookCallback = (
+  input: SDKHookInput,
+  toolUseId: string | undefined,
+  options: { signal: AbortSignal }
+) => Promise<SDKHookOutput>;
+
+/**
+ * Hook configuration with matcher
+ */
+export interface SDKHookCallbackMatcher {
+  /** Regex pattern to match tool names (e.g., 'Edit|Write') */
+  matcher?: string;
+  /** Array of hook callbacks to execute */
+  hooks: SDKHookCallback[];
+}
+
+/**
+ * Complete hooks configuration object
+ */
+export type SDKHooksConfig = Partial<Record<SDKHookEvent, SDKHookCallbackMatcher[]>>;
+
+/**
+ * SDK query options
+ */
+export interface SDKQueryOptions {
+  /** Controller for cancelling operations */
+  abortController?: AbortController;
+  /** Additional directories Claude can access */
+  additionalDirectories?: string[];
+  /** Programmatically define subagents */
+  agents?: Record<string, SDKAgentDefinition>;
+  /** Enable bypassing permissions (use with permissionMode: 'bypassPermissions') */
+  allowDangerouslySkipPermissions?: boolean;
+  /** List of allowed tool names */
+  allowedTools?: string[];
+  /** Continue the most recent conversation */
+  continue?: boolean;
+  /** Current working directory */
+  cwd?: string;
+  /** List of disallowed tool names */
+  disallowedTools?: string[];
+  /** Environment variables */
+  env?: Record<string, string>;
+  /** Hook callbacks for events */
+  hooks?: SDKHooksConfig;
+  /** Include partial message events (for streaming) */
+  includePartialMessages?: boolean;
+  /** Maximum budget in USD */
+  maxBudgetUsd?: number;
+  /** Maximum tokens for thinking process */
+  maxThinkingTokens?: number;
+  /** Maximum conversation turns */
+  maxTurns?: number;
+  /** MCP server configurations */
+  mcpServers?: Record<string, SDKMcpServerConfig>;
+  /** Claude model to use */
+  model?: string;
+  /** Permission mode for the session */
+  permissionMode?: SDKPermissionMode;
+  /** Session ID to resume */
+  resume?: string;
+  /** Control which filesystem settings to load */
+  settingSources?: SDKSettingSource[];
+  /** System prompt configuration */
+  systemPrompt?: string | { type: 'preset'; preset: 'claude_code'; append?: string };
+}
+
+/**
+ * SDK message types - Assistant message
+ */
+export interface SDKAssistantMessage {
+  type: 'assistant';
+  uuid: string;
+  session_id: string;
+  message: {
+    role: 'assistant';
+    content: Array<{
+      type: 'text' | 'tool_use';
+      text?: string;
+      id?: string;
+      name?: string;
+      input?: unknown;
+    }>;
+  };
+  parent_tool_use_id: string | null;
+}
+
+/**
+ * SDK message types - User message
+ */
+export interface SDKUserMessage {
+  type: 'user';
+  uuid?: string;
+  session_id: string;
+  message: {
+    role: 'user';
+    content: string | Array<{ type: string; [key: string]: unknown }>;
+  };
+  parent_tool_use_id: string | null;
+}
+
+/**
+ * SDK message types - System init message
+ */
+export interface SDKSystemMessage {
+  type: 'system';
+  subtype: 'init';
+  uuid: string;
+  session_id: string;
+  cwd: string;
+  tools: string[];
+  mcp_servers: Array<{ name: string; status: string }>;
+  model: string;
+  permissionMode: SDKPermissionMode;
+}
+
+/**
+ * Model usage statistics
+ */
+export interface SDKModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  webSearchRequests: number;
+  costUSD: number;
+  contextWindow: number;
+}
+
+/**
+ * SDK message types - Result message (success)
+ */
+export interface SDKResultMessageSuccess {
+  type: 'result';
+  subtype: 'success';
+  uuid: string;
+  session_id: string;
+  duration_ms: number;
+  duration_api_ms: number;
+  is_error: boolean;
+  num_turns: number;
+  result: string;
+  total_cost_usd: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+  modelUsage: Record<string, SDKModelUsage>;
+}
+
+/**
+ * SDK message types - Result message (error)
+ */
+export interface SDKResultMessageError {
+  type: 'result';
+  subtype: 'error_max_turns' | 'error_during_execution' | 'error_max_budget_usd';
+  uuid: string;
+  session_id: string;
+  duration_ms: number;
+  duration_api_ms: number;
+  is_error: boolean;
+  num_turns: number;
+  total_cost_usd: number;
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+  modelUsage: Record<string, SDKModelUsage>;
+  errors: string[];
+}
+
+/**
+ * Union of SDK result message types
+ */
+export type SDKResultMessage = SDKResultMessageSuccess | SDKResultMessageError;
+
+/**
+ * Union of all SDK message types
+ */
+export type SDKMessage =
+  | SDKAssistantMessage
+  | SDKUserMessage
+  | SDKSystemMessage
+  | SDKResultMessage;
 
 // ============================================================
 // Priority Queue
@@ -403,24 +780,32 @@ export interface TitlePrefixes {
 
 export const TITLE_PREFIXES: TitlePrefixes;
 
-export interface AgentDefinition {
+/**
+ * Agent definition for the Agent Registry (internal GoodFlows format)
+ * Different from SDKAgentDefinition - includes additional metadata fields
+ */
+export interface RegistryAgentDefinition {
+  /** Agent name/identifier */
   name: string;
+  /** Description of the agent's purpose */
   description: string;
-  model?: string;
+  /** Model to use */
+  model?: 'sonnet' | 'opus' | 'haiku';
+  /** Display color for UI */
   color?: string;
+  /** List of tool names the agent can use */
   tools?: string[];
+  /** Trigger phrases that activate this agent */
   triggers?: string[];
 }
-
-export const GOODFLOWS_AGENTS: AgentDefinition[];
 
 export class AgentRegistry {
   constructor();
 
-  register(agent: AgentDefinition): void;
-  get(name: string): AgentDefinition | undefined;
-  getAll(): AgentDefinition[];
-  findByTrigger(text: string): AgentDefinition | null;
+  register(agent: RegistryAgentDefinition): void;
+  get(name: string): RegistryAgentDefinition | undefined;
+  getAll(): RegistryAgentDefinition[];
+  findByTrigger(text: string): RegistryAgentDefinition | null;
 }
 
 export function createAgentRegistry(): AgentRegistry;
@@ -459,25 +844,196 @@ export class PatternNotFoundError extends GoodFlowsError {
 }
 
 // ============================================================
-// SDK Adapter
+// SDK Adapter (GoodFlows + Claude Agent SDK Integration)
 // ============================================================
 
-export interface GoodFlowsHooksConfig {
-  PreToolUse: Array<{ matcher: string; hooks: Array<(...args: unknown[]) => Promise<unknown>> }>;
-  PostToolUse: Array<{ hooks: Array<(...args: unknown[]) => Promise<unknown>> }>;
-  Stop: Array<{ hooks: Array<(...args: unknown[]) => Promise<unknown>> }>;
+/**
+ * Linear MCP tool names exposed by linear-mcp-server
+ */
+export const LINEAR_MCP_TOOLS: readonly [
+  'linear__list_teams',
+  'linear__create_issue',
+  'linear__update_issue',
+  'linear__get_issue',
+  'linear__list_issue_labels',
+  'linear__create_comment',
+  'linear__search_issues'
+];
+
+/**
+ * Serena MCP tool names exposed by serena-mcp-server
+ */
+export const SERENA_MCP_TOOLS: readonly [
+  'serena__find_symbol',
+  'serena__find_referencing_symbols',
+  'serena__get_symbols_overview',
+  'serena__replace_symbol_body',
+  'serena__replace_content',
+  'serena__read_file',
+  'serena__read_memory',
+  'serena__write_memory',
+  'serena__search_for_pattern',
+  'serena__list_dir'
+];
+
+/**
+ * GoodFlows agent definition (extends SDK agent with GoodFlows-specific fields)
+ */
+export interface GoodFlowsAgentDefinition extends SDKAgentDefinition {
+  /** Model to use for this agent */
+  model: 'sonnet' | 'opus' | 'haiku';
 }
 
-export interface GoodFlowsConfigOptions {
+/**
+ * GoodFlows agent registry - predefined agents for code review workflows
+ */
+export const GOODFLOWS_AGENTS: {
+  'review-orchestrator': GoodFlowsAgentDefinition;
+  'issue-creator': GoodFlowsAgentDefinition;
+  'coderabbit-auto-fixer': GoodFlowsAgentDefinition;
+};
+
+/**
+ * Options for creating GoodFlows hooks
+ */
+export interface GoodFlowsHooksOptions {
+  /** Custom context store instance */
   contextStore?: ContextStore;
+  /** Custom pattern tracker instance */
   patternTracker?: PatternTracker;
+  /** Custom session manager instance */
   sessionManager?: SessionContextManager;
+  /** Custom priority queue instance */
   priorityQueue?: PriorityQueue;
 }
 
-export function createGoodFlowsHooks(options?: GoodFlowsConfigOptions): GoodFlowsHooksConfig;
-export function createGoodFlowsConfig(options?: GoodFlowsConfigOptions): GoodFlowsHooksConfig;
-export function runWithGoodFlows(prompt: string, options?: GoodFlowsConfigOptions): Promise<unknown>;
+/**
+ * GoodFlows hooks configuration (compatible with SDK hooks)
+ */
+export interface GoodFlowsHooksConfig extends SDKHooksConfig {
+  PreToolUse: SDKHookCallbackMatcher[];
+  PostToolUse: SDKHookCallbackMatcher[];
+  SubagentStop: SDKHookCallbackMatcher[];
+  SessionStart: SDKHookCallbackMatcher[];
+  Stop: SDKHookCallbackMatcher[];
+}
+
+/**
+ * Complete GoodFlows configuration for use with Claude Agent SDK
+ */
+export interface GoodFlowsConfig {
+  /** GoodFlows agent definitions */
+  agents: typeof GOODFLOWS_AGENTS;
+  /** GoodFlows hooks for SDK integration */
+  hooks: GoodFlowsHooksConfig;
+  /** MCP server configurations for Linear and Serena */
+  mcpServers: {
+    linear: SDKMcpStdioServerConfig;
+    serena?: SDKMcpStdioServerConfig;
+  };
+  /** Direct access to GoodFlows components */
+  components: {
+    contextStore: ContextStore;
+    patternTracker: PatternTracker;
+    sessionManager: SessionContextManager;
+    priorityQueue: PriorityQueue;
+  };
+}
+
+/**
+ * Options for createGoodFlowsConfig
+ */
+export interface CreateGoodFlowsConfigOptions extends GoodFlowsHooksOptions {
+  /** Enable Serena MCP server for code analysis */
+  enableSerena?: boolean;
+}
+
+/**
+ * Create GoodFlows hooks for SDK integration
+ *
+ * @example
+ * ```typescript
+ * import { query } from "@anthropic-ai/claude-agent-sdk";
+ * import { createGoodFlowsHooks, GOODFLOWS_AGENTS } from "goodflows";
+ *
+ * for await (const message of query({
+ *   prompt: "Run code review",
+ *   options: {
+ *     agents: GOODFLOWS_AGENTS,
+ *     hooks: createGoodFlowsHooks()
+ *   }
+ * })) {
+ *   console.log(message);
+ * }
+ * ```
+ */
+export function createGoodFlowsHooks(options?: GoodFlowsHooksOptions): GoodFlowsHooksConfig;
+
+/**
+ * Create a complete GoodFlows configuration for Claude Agent SDK
+ *
+ * @example
+ * ```typescript
+ * import { query } from "@anthropic-ai/claude-agent-sdk";
+ * import { createGoodFlowsConfig } from "goodflows";
+ *
+ * const config = createGoodFlowsConfig();
+ *
+ * for await (const message of query({
+ *   prompt: "Run full code review and create issues",
+ *   options: {
+ *     allowedTools: ["Read", "Glob", "Grep", "Bash", "Edit", "Task"],
+ *     agents: config.agents,
+ *     hooks: config.hooks,
+ *     mcpServers: config.mcpServers
+ *   }
+ * })) {
+ *   console.log(message);
+ * }
+ * ```
+ */
+export function createGoodFlowsConfig(options?: CreateGoodFlowsConfigOptions): GoodFlowsConfig;
+
+/**
+ * Options for runGoodFlows
+ */
+export interface RunGoodFlowsOptions extends CreateGoodFlowsConfigOptions {
+  /** Additional SDK query options */
+  sdkOptions?: Partial<SDKQueryOptions>;
+  /** Progress callback for each message */
+  onProgress?: (message: SDKMessage) => void;
+}
+
+/**
+ * Result from runGoodFlows
+ */
+export interface RunGoodFlowsResult {
+  /** All messages received during execution */
+  messages: SDKMessage[];
+  /** Session summary from GoodFlows */
+  summary: Record<string, unknown>;
+  /** Execution statistics */
+  stats: {
+    queue: QueueStats;
+    session: Record<string, unknown>;
+  };
+}
+
+/**
+ * Quick start function for running GoodFlows with Claude Agent SDK
+ *
+ * @example
+ * ```typescript
+ * import { runGoodFlows } from "goodflows";
+ *
+ * const result = await runGoodFlows("Run full code review");
+ * console.log(result.summary);
+ * ```
+ */
+export function runGoodFlows(
+  prompt: string,
+  options?: RunGoodFlowsOptions
+): Promise<RunGoodFlowsResult>;
 
 // ============================================================
 // Debug Logging
