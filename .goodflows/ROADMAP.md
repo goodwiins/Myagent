@@ -24,6 +24,38 @@
 
 ---
 
+## GoodFlows Maintenance Roadmap
+
+### GF-Phase 01: fix-review-findings
+- **Status**: planned
+- **Plans**: 3 (01-01, 01-02, 01-03)
+- **Goal**: Fix P2/P3 code review findings (GOO-141 to GOO-146)
+
+### GF-Phase 02: cross-cli-sync
+- **Status**: planned
+- **Plans**: 0 (context only)
+- **Goal**: Enable LLM collaboration with shared context
+
+### GF-Phase 03: immediate-fixes ✓ COMPLETE
+- **Status**: completed
+- **Plans**: 1 (03-01) ✓
+- **Goal**: Execute pending fixes, clean up sessions
+- **Summary**: Verified 5 fixes (GOO-141-144, GOO-146), archived 40 sessions, 408 tests pass
+
+### GF-Phase 04: short-term-improvements ✓ COMPLETE
+- **Status**: completed
+- **Plans**: 2 (04-01 ✓, 04-02 ✓)
+- **Goal**: Complete cross-CLI sync, add session-context tests
+- **Summary**: Plan 04-01 was already implemented (SyncManager, MCP handlers, CLI commands). Plan 04-02 added 80 tests for session-context.js, achieving 100% function coverage (up from 44%). Total: 488 tests pass.
+
+### GF-Phase 05: long-term-enhancements
+- **Status**: planned
+- **Plans**: 1 (05-01)
+- **Goal**: Split types (GOO-145), auto-context detection, health dashboard
+- **Depends on**: GF-Phase 04
+
+---
+
 ## Completed Milestones
 
 ### v1.4.0 - Full-Text Search & Optimization

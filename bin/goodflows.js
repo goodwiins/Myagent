@@ -107,6 +107,7 @@ function parseArgs(args) {
       case 'loop':
       case 'watch':
       case 'sync':
+      case 'health':
         options.command = arg;
         break;
       case 'add':
@@ -208,6 +209,7 @@ ${colors.bold}COMMANDS:${colors.reset}
   list        List available agents
   context     Manage context storage (query, export, clear)
   sync        Cross-CLI sync (export, import, merge, status)
+  health      Show context files health dashboard
   migrate     Migrate from legacy markdown memories
   stats       Show context storage statistics
   loop        Run continuous review loop (interval mode)
@@ -236,6 +238,7 @@ ${colors.bold}EXAMPLES:${colors.reset}
   ${colors.cyan}goodflows sync status${colors.reset}                # Show sync status
   ${colors.cyan}goodflows migrate${colors.reset}                    # Migrate legacy memories
   ${colors.cyan}goodflows stats${colors.reset}                      # Show storage statistics
+  ${colors.cyan}goodflows health${colors.reset}                     # Show context health dashboard
   ${colors.cyan}goodflows loop${colors.reset}                       # Start interval review loop
   ${colors.cyan}goodflows watch${colors.reset}                      # Start file-watching loop
 
@@ -773,6 +776,39 @@ ${colors.bold}Patterns:${colors.reset}
   }
 }
 
+// Show context health dashboard
+async function health() {
+  const { getHealthSummary, formatHealthReport } = await import('../lib/context-health.js');
+
+  showLogo();
+
+  if (!existsSync('.goodflows')) {
+    log.warning('Context files not initialized. Run: goodflows init');
+    return;
+  }
+
+  log.info('Analyzing context files health...');
+
+  try {
+    const summary = await getHealthSummary({ basePath: '.goodflows' });
+    const report = formatHealthReport(summary, { color: true });
+
+    console.log('');
+    console.log(report);
+
+    // Show actionable next steps
+    if (summary.suggestions.length > 0 && summary.overallScore < 80) {
+      console.log(`
+${colors.bold}Next Steps:${colors.reset}
+  Run ${colors.cyan}goodflows context-file init${colors.reset} to create missing files
+  Run ${colors.cyan}goodflows context-file write <type>${colors.reset} to update files
+`);
+    }
+  } catch (error) {
+    log.error(`Health check failed: ${error.message}`);
+  }
+}
+
 // Sync command for cross-CLI collaboration
 function syncCommand(options) {
   const { subcommand, llm, role, message, strategy } = options;
@@ -1228,6 +1264,9 @@ function main() {
       break;
     case 'stats':
       stats();
+      break;
+    case 'health':
+      health();
       break;
     case 'loop':
     case 'watch':

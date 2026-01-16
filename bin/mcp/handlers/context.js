@@ -102,6 +102,31 @@ The store automatically:
       required: ['description'],
     },
   },
+  {
+    name: 'goodflows_context_health',
+    description: `Get context file health metrics. Returns size, staleness, and coverage for all context files.
+
+Health statuses:
+- good: <70% of token limit
+- warning: 70-90% of token limit
+- critical: >90% of token limit
+
+Returns overall score (0-100) and suggestions for improvement.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        basePath: {
+          type: 'string',
+          description: 'Base path for context files (default: .goodflows)',
+        },
+        format: {
+          type: 'string',
+          enum: ['json', 'text'],
+          description: 'Output format: json (default) or text for CLI display',
+        },
+      },
+    },
+  },
 ];
 
 /**
@@ -171,6 +196,21 @@ export const handlers = {
       isDuplicate: existing.length > 0,
       similarFindings: existing,
     });
+  },
+
+  async goodflows_context_health(args) {
+    const { getHealthSummary, formatHealthReport } = await import('../../../lib/context-health.js');
+
+    const basePath = args.basePath || '.goodflows';
+    const summary = await getHealthSummary({ basePath });
+
+    if (args.format === 'text') {
+      return mcpResponse({
+        report: formatHealthReport(summary, { color: false }),
+      });
+    }
+
+    return mcpResponse(summary);
   },
 };
 
