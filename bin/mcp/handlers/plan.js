@@ -179,54 +179,41 @@ Example:
   },
   {
     name: 'goodflows_plan_parse',
-    description: `Parse the XML task definition from PLAN.md.
+    description: `Parse, generate, or create plan content. Unified tool for PLAN.md operations.
 
-Returns structured task object with:
-- name, type, context, scope, action, verify, done, tracking
+Modes:
+- "xml" (default): Parse XML task from PLAN.md, returns structured task object
+- "multi": Parse multi-task PLAN.md, returns metadata, objective, tasks
+- "prompt": Generate agent prompt from parsed PLAN.md task
+- "create_xml": Create XML task template for PLAN.md
 
-Also validates the task and provides warnings/suggestions.`,
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
-  },
-  {
-    name: 'goodflows_plan_generate_prompt',
-    description: 'Generate an agent prompt from the parsed PLAN.md task',
-    inputSchema: {
-      type: 'object',
-      properties: {},
-    },
-  },
-  {
-    name: 'goodflows_plan_create_xml',
-    description: `Create an XML task template for PLAN.md.
-
-Generates structured XML task definition with:
-- name, type, context, scope, action, verify, done, tracking
-
-Example input:
-{
-  "name": "Add user authentication",
-  "type": "implementation",
-  "why": "Users need to log in securely",
-  "files": [{ "path": "src/auth.ts", "action": "create" }],
-  "action": "1. Create auth module\\n2. Add JWT handling",
-  "checks": [{ "type": "command", "value": "npm test" }],
-  "done": "Users can log in and receive JWT token"
-}`,
+Examples:
+- Parse single task: { "mode": "xml" }
+- Parse multi-task: { "mode": "multi", "phase": 2, "plan": 1 }
+- Generate prompt: { "mode": "prompt" }
+- Create XML: { "mode": "create_xml", "name": "Add auth", "action": "...", "done": "..." }`,
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Task name' },
+        mode: {
+          type: 'string',
+          enum: ['xml', 'multi', 'prompt', 'create_xml'],
+          description: 'Operation mode (default: xml)',
+        },
+        // For mode="multi"
+        planPath: { type: 'string', description: 'Path to PLAN.md (for mode=multi)' },
+        phase: { type: ['number', 'string'], description: 'Phase number or name (for mode=multi)' },
+        plan: { type: 'number', description: 'Plan number (for mode=multi)' },
+        // For mode="create_xml"
+        name: { type: 'string', description: 'Task name (for mode=create_xml)' },
         type: {
           type: 'string',
           enum: ['implementation', 'fix', 'refactor', 'review'],
-          description: 'Task type (default: implementation)',
+          description: 'Task type (for mode=create_xml, default: implementation)',
         },
-        why: { type: 'string', description: 'Why this task matters' },
-        dependsOn: { type: 'string', description: 'Prerequisites' },
-        session: { type: 'string', description: 'Session ID' },
+        why: { type: 'string', description: 'Why this task matters (for mode=create_xml)' },
+        dependsOn: { type: 'string', description: 'Prerequisites (for mode=create_xml)' },
+        session: { type: 'string', description: 'Session ID (for mode=create_xml)' },
         files: {
           type: 'array',
           items: {
@@ -236,10 +223,10 @@ Example input:
               action: { type: 'string', enum: ['create', 'modify', 'delete'] },
             },
           },
-          description: 'Files to create/modify/delete',
+          description: 'Files to create/modify/delete (for mode=create_xml)',
         },
-        boundaries: { type: 'string', description: 'What NOT to touch' },
-        action: { type: 'string', description: 'Step-by-step instructions' },
+        boundaries: { type: 'string', description: 'What NOT to touch (for mode=create_xml)' },
+        action: { type: 'string', description: 'Step-by-step instructions (for mode=create_xml)' },
         checks: {
           type: 'array',
           items: {
@@ -249,26 +236,11 @@ Example input:
               value: { type: 'string' },
             },
           },
-          description: 'Verification checks',
+          description: 'Verification checks (for mode=create_xml)',
         },
-        done: { type: 'string', description: 'Definition of done' },
-        trackGoodflows: { type: 'boolean', description: 'Enable GoodFlows tracking (default: true)' },
-        writeToPlan: { type: 'boolean', description: 'Write to PLAN.md (default: false)' },
-      },
-      required: ['name', 'action', 'done'],
-    },
-  },
-  {
-    name: 'goodflows_parse_multi_task_plan',
-    description: `Parse a multi-task PLAN.md file.
-
-Returns structured data including metadata, objective, tasks, and execution strategy.`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        planPath: { type: 'string', description: 'Path to PLAN.md (default: from current phase)' },
-        phase: { type: ['number', 'string'], description: 'Phase number or name' },
-        plan: { type: 'number', description: 'Plan number' },
+        done: { type: 'string', description: 'Definition of done (for mode=create_xml)' },
+        trackGoodflows: { type: 'boolean', description: 'Enable GoodFlows tracking (for mode=create_xml, default: true)' },
+        writeToPlan: { type: 'boolean', description: 'Write to PLAN.md (for mode=create_xml, default: false)' },
       },
     },
   },
@@ -352,81 +324,80 @@ export const handlers = {
     return mcpResponse(result);
   },
 
-  async goodflows_plan_parse(_args, services) {
-    const { contextFileManager, parseTask, validateTask } = services;
+  async goodflows_plan_parse(args, services) {
+    const { contextFileManager, parseTask, validateTask, generateTaskPrompt, createTaskXml, phaseManager, parseMultiTaskPlan } = services;
+    const mode = args.mode || 'xml';
 
-    const planContent = contextFileManager.read('PLAN');
-    if (!planContent.success) {
-      return mcpError('Failed to read PLAN.md', 'READ_ERROR');
-    }
-
-    const task = parseTask(planContent.content);
-    const validation = validateTask(task);
-
-    return mcpResponse({
-      task,
-      validation,
-    });
-  },
-
-  async goodflows_plan_generate_prompt(_args, services) {
-    const { contextFileManager, parseTask, generateTaskPrompt } = services;
-
-    const planContent = contextFileManager.read('PLAN');
-    if (!planContent.success) {
-      return mcpError('Failed to read PLAN.md', 'READ_ERROR');
-    }
-
-    const task = parseTask(planContent.content);
-    const prompt = generateTaskPrompt(task);
-
-    return mcpResponse({ prompt });
-  },
-
-  async goodflows_plan_create_xml(args, services) {
-    const { contextFileManager, createTaskXml } = services;
-
-    const xml = createTaskXml({
-      name: args.name,
-      type: args.type || 'implementation',
-      why: args.why,
-      dependsOn: args.dependsOn,
-      session: args.session,
-      files: args.files,
-      boundaries: args.boundaries,
-      action: args.action,
-      checks: args.checks,
-      done: args.done,
-      trackGoodflows: args.trackGoodflows !== false,
-    });
-
-    if (args.writeToPlan) {
-      contextFileManager.write('PLAN', xml);
-      return mcpResponse({ success: true, written: true, xml });
-    }
-
-    return mcpResponse({ success: true, xml });
-  },
-
-  async goodflows_parse_multi_task_plan(args, services) {
-    const { phaseManager, parseMultiTaskPlan } = services;
-
-    let planContent;
-    if (args.planPath) {
-      const { readFileSync } = await import('fs');
-      planContent = readFileSync(args.planPath, 'utf-8');
-    } else if (args.phase !== undefined && args.plan !== undefined) {
-      const plan = phaseManager.getPlan(args.phase, args.plan);
-      if (!plan) {
-        return mcpError('Plan not found', 'PLAN_NOT_FOUND');
+    switch (mode) {
+      case 'xml': {
+        // Parse XML task from PLAN.md
+        const planContent = contextFileManager.read('PLAN');
+        if (!planContent.success) {
+          return mcpError('Failed to read PLAN.md', 'READ_ERROR');
+        }
+        const task = parseTask(planContent.content);
+        const validation = validateTask(task);
+        return mcpResponse({ task, validation });
       }
-      planContent = plan.rawContent;
-    } else {
-      return mcpError('Either planPath or (phase + plan) is required', 'INVALID_ARGS');
-    }
 
-    const parsed = parseMultiTaskPlan(planContent);
-    return mcpResponse(parsed);
+      case 'prompt': {
+        // Generate agent prompt from parsed PLAN.md task
+        const planContent = contextFileManager.read('PLAN');
+        if (!planContent.success) {
+          return mcpError('Failed to read PLAN.md', 'READ_ERROR');
+        }
+        const task = parseTask(planContent.content);
+        const prompt = generateTaskPrompt(task);
+        return mcpResponse({ prompt });
+      }
+
+      case 'create_xml': {
+        // Create XML task template for PLAN.md
+        if (!args.name || !args.action || !args.done) {
+          return mcpError('name, action, and done are required for mode=create_xml', 'INVALID_ARGS');
+        }
+        const xml = createTaskXml({
+          name: args.name,
+          type: args.type || 'implementation',
+          why: args.why,
+          dependsOn: args.dependsOn,
+          session: args.session,
+          files: args.files,
+          boundaries: args.boundaries,
+          action: args.action,
+          checks: args.checks,
+          done: args.done,
+          trackGoodflows: args.trackGoodflows !== false,
+        });
+        if (args.writeToPlan) {
+          contextFileManager.write('PLAN', xml);
+          return mcpResponse({ success: true, written: true, xml });
+        }
+        return mcpResponse({ success: true, xml });
+      }
+
+      case 'multi': {
+        // Parse multi-task PLAN.md file
+        let planContent;
+        if (args.planPath) {
+          const { readFileSync } = await import('fs');
+          planContent = readFileSync(args.planPath, 'utf-8');
+        } else if (args.phase !== undefined && args.plan !== undefined) {
+          const plan = phaseManager.getPlan(args.phase, args.plan);
+          if (!plan) {
+            return mcpError('Plan not found', 'PLAN_NOT_FOUND');
+          }
+          planContent = plan.rawContent;
+        } else {
+          return mcpError('Either planPath or (phase + plan) is required for mode=multi', 'INVALID_ARGS');
+        }
+        const parsed = parseMultiTaskPlan(planContent);
+        return mcpResponse(parsed);
+      }
+
+      default:
+        return mcpError(`Unknown mode: ${mode}. Valid modes: xml, multi, prompt, create_xml`, 'INVALID_MODE');
+    }
   },
 };
 

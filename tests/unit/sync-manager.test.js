@@ -378,4 +378,69 @@ describe('SyncManager', () => {
       expect(llms).toContain('gpt4');
     });
   });
+
+  describe('activity logging', () => {
+    it('should initialize SyncActivity on construction', () => {
+      expect(syncManager.activity).toBeDefined();
+    });
+
+    it('should log export activity', () => {
+      syncManager.export({
+        llm: 'claude',
+        message: 'Test export',
+      });
+
+      const activity = syncManager.getActivity({ llm: 'claude' });
+      expect(activity.length).toBeGreaterThan(0);
+      expect(activity[0].type).toBe('export');
+    });
+
+    it('should log import activity', () => {
+      // First export something
+      syncManager.export({ llm: 'gemini' });
+
+      // Then import
+      syncManager.setCurrentLlm('claude');
+      syncManager.import({ llm: 'gemini' });
+
+      const activity = syncManager.getActivity({ type: 'import' });
+      expect(activity.length).toBeGreaterThan(0);
+    });
+
+    it('should log merge activity', () => {
+      syncManager.export({ llm: 'claude' });
+      syncManager.export({ llm: 'gemini' });
+
+      syncManager.setCurrentLlm('orchestrator');
+      syncManager.merge({});
+
+      const activity = syncManager.getActivity({ type: 'merge' });
+      expect(activity.length).toBeGreaterThan(0);
+    });
+
+    it('should track current LLM via setCurrentLlm', () => {
+      syncManager.setCurrentLlm('Claude');
+      expect(syncManager._currentLlm).toBe('claude'); // Should be normalized
+    });
+
+    it('should return activity summary by LLM', () => {
+      syncManager.export({ llm: 'claude' });
+      syncManager.export({ llm: 'claude' });
+      syncManager.export({ llm: 'gemini' });
+
+      const summary = syncManager.getActivitySummary();
+      expect(summary.claude).toBeDefined();
+      expect(summary.gemini).toBeDefined();
+      expect(summary.claude.exports).toBe(2);
+      expect(summary.gemini.exports).toBe(1);
+    });
+
+    it('should return activity freshness for LLM', () => {
+      syncManager.export({ llm: 'claude', message: 'Fresh export' });
+
+      const freshness = syncManager.getActivityFreshness('claude');
+      expect(freshness.status).toBe('fresh');
+      expect(freshness.llm).toBe('claude');
+    });
+  });
 });

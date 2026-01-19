@@ -123,21 +123,21 @@
     "modified": [],
     "deleted": []
   },
-  "lastUpdated": "2026-01-16T20:17:42.979Z",
+  "lastUpdated": "2026-01-16T20:23:26.029Z",
   "exports": {
     "claude": {
-      "exportedAt": "2026-01-16T19:01:37.733Z",
-      "role": "backend",
-      "contentHash": "75473213fdae",
+      "exportedAt": "2026-01-16T20:22:33.193Z",
+      "role": "full",
+      "contentHash": "712940131788",
       "stats": {
-        "totalFindings": 10,
+        "totalFindings": 11,
         "trackedFiles": 0
       }
     },
     "gemini": {
-      "exportedAt": "2026-01-16T20:17:42.978Z",
+      "exportedAt": "2026-01-16T20:23:26.029Z",
       "role": "full",
-      "contentHash": "fe9309e519a8",
+      "contentHash": "a162fb67edc6",
       "stats": {
         "totalFindings": 11,
         "trackedFiles": 0

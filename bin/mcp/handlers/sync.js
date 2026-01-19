@@ -15,75 +15,62 @@ import { mcpResponse, mcpError } from '../tool-registry.js';
  */
 export const tools = [
   {
-    name: 'goodflows_sync_export',
-    description: `Export context for another LLM to import.
+    name: 'goodflows_sync',
+    description: `Sync context between LLMs. Export or import handoff files.
 
-Creates a handoff file at .goodflows/sync/handoff-{llm}.json that can be
-imported by another LLM (Gemini, GPT-4, etc.) to resume work.
+Directions:
+- "export": Export context for another LLM to import
+- "import": Import context from another LLM
 
-Supports role-based filtering to export only relevant context:
-- "frontend": Components, pages, styles, hooks
-- "backend": API, server, database, lib
-- "testing": Test files and configs
-- "devops": Docker, CI/CD, scripts
+Role filters (for export): frontend, backend, testing, devops
 
-Example: { "llm": "claude", "role": "backend", "message": "API ready for frontend" }`,
+Examples:
+- Export: { "direction": "export", "llm": "claude", "role": "backend" }
+- Import: { "direction": "import", "llm": "gemini" }`,
     inputSchema: {
       type: 'object',
       properties: {
+        direction: {
+          type: 'string',
+          enum: ['export', 'import'],
+          description: 'Operation direction (default: export)',
+        },
         llm: {
           type: 'string',
           description: 'LLM identifier (claude, gemini, gpt4, copilot, cursor, windsurf)',
         },
+        // For export
         sessionId: {
           type: 'string',
-          description: 'Session ID to export (uses active session if not specified)',
+          description: 'Session ID to export (for export)',
         },
         role: {
           type: 'string',
           enum: ['frontend', 'backend', 'testing', 'devops'],
-          description: 'Role preset for filtering context',
+          description: 'Role preset for filtering (for export)',
         },
         includeFiles: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Custom include glob patterns (e.g., ["src/api/**", "lib/**"])',
+          description: 'Custom include glob patterns (for export)',
         },
         excludeFiles: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Custom exclude glob patterns',
+          description: 'Custom exclude glob patterns (for export)',
         },
         includeFindings: {
           type: 'boolean',
-          description: 'Include findings from context store (default: true)',
+          description: 'Include findings (for export, default: true)',
         },
         message: {
           type: 'string',
-          description: 'Message for the receiving LLM',
+          description: 'Message for receiving LLM (for export)',
         },
-      },
-      required: ['llm'],
-    },
-  },
-  {
-    name: 'goodflows_sync_import',
-    description: `Import context from another LLM.
-
-Reads the handoff file from .goodflows/sync/handoff-{llm}.json and returns
-the context for resuming work.
-
-Example: { "llm": "gemini" } - Import Gemini's exported context`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        llm: {
-          type: 'string',
-          description: 'LLM to import from (reads .goodflows/sync/handoff-{llm}.json)',
-        },
+        // For import
         content: {
           type: 'string',
-          description: 'Direct JSON content (alternative to reading from file)',
+          description: 'Direct JSON content (for import, alternative to file)',
         },
       },
     },
@@ -136,75 +123,115 @@ Example: {} - Get full status, or { "llm": "gemini" } for specific LLM`,
       },
     },
   },
+  {
+    name: 'goodflows_sync_activity',
+    description: `Get activity log for cross-LLM collaboration.
+
+Shows timeline of sync events (exports, imports, merges) across all LLMs.
+Use this to understand collaboration history and see what other LLMs have done.
+
+Freshness levels:
+- "fresh": Activity within last 5 minutes
+- "recent": Activity within last 30 minutes
+- "stale": Activity within last hour
+- "old": Activity within last day
+- "outdated": Activity older than a day
+
+Example: { "llm": "gemini" } - Check Gemini's activity status`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        llm: {
+          type: 'string',
+          description: 'Filter activity by specific LLM',
+        },
+        type: {
+          type: 'string',
+          enum: ['export', 'import', 'merge', 'session_start', 'session_end', 'work_completed'],
+          description: 'Filter by event type',
+        },
+        limit: {
+          type: 'number',
+          description: 'Maximum events to return (default: 10)',
+        },
+        since: {
+          type: 'string',
+          description: 'ISO timestamp to filter events from',
+        },
+        summary: {
+          type: 'boolean',
+          description: 'Return summary by LLM instead of event list (default: false)',
+        },
+      },
+    },
+  },
 ];
 
 /**
  * Sync Handlers
  */
 export const handlers = {
-  async goodflows_sync_export(args, services) {
+  async goodflows_sync(args, services) {
     const { activeSessions, contextStore, getProjectContext } = services;
+    const direction = args.direction || 'export';
 
     try {
       const syncManager = new SyncManager({ basePath: process.cwd() });
-      const projectContext = getProjectContext();
 
-      // Get session data
-      let session = null;
-      if (args.sessionId) {
-        session = activeSessions.get(args.sessionId);
-      } else {
-        // Get first active session
-        for (const [, sess] of activeSessions) {
-          session = sess;
-          break;
+      if (direction === 'export') {
+        const projectContext = getProjectContext();
+
+        // Get session data
+        let session = null;
+        if (args.sessionId) {
+          session = activeSessions.get(args.sessionId);
+        } else {
+          // Get first active session
+          for (const [, sess] of activeSessions) {
+            session = sess;
+            break;
+          }
         }
+
+        // Get findings if requested
+        let findings = [];
+        if (args.includeFindings !== false) {
+          findings = contextStore.query({ limit: 50 });
+        }
+
+        const result = syncManager.export({
+          llm: args.llm,
+          session,
+          findings,
+          projectContext,
+          role: args.role,
+          includeFiles: args.includeFiles,
+          excludeFiles: args.excludeFiles,
+          message: args.message,
+        });
+
+        return mcpResponse(result);
+      } else if (direction === 'import') {
+        const result = syncManager.import({
+          llm: args.llm,
+          content: args.content,
+        });
+
+        return mcpResponse({
+          ...result,
+          nextSteps: [
+            result.session
+              ? `Resume session: goodflows_session_resume({ sessionId: "${result.session.id}" })`
+              : 'Start new session: goodflows_session_start({ trigger: "sync-import" })',
+            `${result.findings?.length || 0} findings available`,
+            result.message ? `Message from ${result.importedFrom}: ${result.message}` : null,
+          ].filter(Boolean),
+        });
+      } else {
+        return mcpError(`Unknown direction: ${direction}. Valid: export, import`, 'INVALID_DIRECTION');
       }
-
-      // Get findings if requested
-      let findings = [];
-      if (args.includeFindings !== false) {
-        findings = contextStore.query({ limit: 50 });
-      }
-
-      const result = syncManager.export({
-        llm: args.llm,
-        session,
-        findings,
-        projectContext,
-        role: args.role,
-        includeFiles: args.includeFiles,
-        excludeFiles: args.excludeFiles,
-        message: args.message,
-      });
-
-      return mcpResponse(result);
     } catch (error) {
-      return mcpError(`Sync export failed: ${error.message}`, 'SYNC_EXPORT_ERROR');
-    }
-  },
-
-  async goodflows_sync_import(args, _services) {
-    try {
-      const syncManager = new SyncManager({ basePath: process.cwd() });
-
-      const result = syncManager.import({
-        llm: args.llm,
-        content: args.content,
-      });
-
-      return mcpResponse({
-        ...result,
-        nextSteps: [
-          result.session
-            ? `Resume session: goodflows_session_resume({ sessionId: "${result.session.id}" })`
-            : 'Start new session: goodflows_session_start({ trigger: "sync-import" })',
-          `${result.findings?.length || 0} findings available`,
-          result.message ? `Message from ${result.importedFrom}: ${result.message}` : null,
-        ].filter(Boolean),
-      });
-    } catch (error) {
-      return mcpError(`Sync import failed: ${error.message}`, 'SYNC_IMPORT_ERROR');
+      return mcpError(`Sync ${direction} failed: ${error.message}`, 'SYNC_ERROR');
     }
   },
 
@@ -253,6 +280,62 @@ export const handlers = {
       });
     } catch (error) {
       return mcpError(`Sync status failed: ${error.message}`, 'SYNC_STATUS_ERROR');
+    }
+  },
+
+  async goodflows_sync_activity(args, _services) {
+    try {
+      const syncManager = new SyncManager({ basePath: process.cwd() });
+
+      // Return summary by LLM if requested
+      if (args.summary) {
+        const summary = syncManager.getActivitySummary();
+        const llmList = Object.keys(summary);
+
+        return mcpResponse({
+          summary,
+          llmCount: llmList.length,
+          totalEvents: llmList.reduce((sum, llm) => sum + summary[llm].totalEvents, 0),
+          hint: llmList.length === 0
+            ? 'No activity recorded yet. Export/import to create activity.'
+            : null,
+        });
+      }
+
+      // If specific LLM requested, also return freshness
+      if (args.llm) {
+        const freshness = syncManager.getActivityFreshness(args.llm);
+        const activity = syncManager.getActivity({
+          limit: args.limit || 10,
+          llm: args.llm,
+          type: args.type,
+          since: args.since,
+        });
+
+        return mcpResponse({
+          llm: args.llm,
+          freshness,
+          events: activity,
+          eventCount: activity.length,
+        });
+      }
+
+      // Return general activity log
+      const activity = syncManager.getActivity({
+        limit: args.limit || 10,
+        type: args.type,
+        since: args.since,
+      });
+
+      return mcpResponse({
+        events: activity,
+        eventCount: activity.length,
+        hint: activity.length === 0
+          ? 'No activity recorded yet. Use goodflows_sync_export/import to start collaborating.'
+          : 'Use { llm: "name" } to check specific LLM freshness',
+      });
+    } catch (error) {
+      return mcpError(`Sync activity failed: ${error.message}`, 'SYNC_ACTIVITY_ERROR');
     }
   },
 };

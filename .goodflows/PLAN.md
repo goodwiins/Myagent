@@ -1,129 +1,95 @@
----
-phase: 05-long-term-enhancements
-plan: 01
-type: execute
-depends_on: [04-short-term-improvements]
-files_modified: []
----
+# Phase 06: Sync Collaboration Improvements
 
-<objective>
-Split large TypeScript definition file and implement context engineering improvements
+## Objective
+Improve real-time collaboration between Claude, Gemini, and other LLMs with automatic sync, activity awareness, and conflict prevention.
 
-Purpose: Improve maintainability, enable smart context loading, and provide visibility into context health
-Output: Modular type files, auto-context detection, context health dashboard
-</objective>
+## Problem Statement
+Current sync workflow requires manual intervention:
+1. User must explicitly call `goodflows_sync_export`
+2. No awareness when another LLM exports context
+3. No activity feed showing collaborative work
+4. No automatic conflict detection before work starts
 
-<execution_context>
-@.goodflows/workflows/execute-plan.md
-@.goodflows/todos/context-engineering-ideas.md
-</execution_context>
-
-<context>
-@types/index.d.ts
-@lib/context-files.js
-</context>
+## Tasks
 
 <tasks>
 
-<task type="auto" id="task-1">
-  <name>GOO-145: Split TypeScript definition file</name>
-  <files>types/index.d.ts, types/sdk.d.ts, types/context.d.ts, types/gsd.d.ts, types/mcp.d.ts</files>
+<task type="auto" id="task-01">
+  <name>Add Activity Log to SyncManager</name>
+  <context>
+    <why>Users need visibility into what other LLMs have done</why>
+    <dependencies>None</dependencies>
+  </context>
+  <scope>
+    <files>
+      <file action="modify">lib/sync-manager.js</file>
+      <file action="create">lib/sync-activity.js</file>
+    </files>
+  </scope>
   <action>
-    Split the 1100+ line types/index.d.ts into modular files:
-
-    1. Create types/sdk.d.ts:
-       - Agent SDK types
-       - Tool definitions
-       - Hook interfaces
-
-    2. Create types/context.d.ts:
-       - SessionContextManager types
-       - Context store types
-       - Finding and pattern types
-
-    3. Create types/gsd.d.ts:
-       - GSD executor types
-       - Phase and plan types
-       - Task and verification types
-
-    4. Create types/mcp.d.ts:
-       - MCP tool input/output types
-       - Handler types
-
-    5. Update types/index.d.ts:
-       - Re-export all types from modular files
-       - Maintain backward compatibility
+    1. Create SyncActivity class to track LLM activities
+    2. Log each export/import with timestamp, LLM, action, summary
+    3. Add `getActivity(limit)` method to retrieve recent activity
+    4. Add `goodflows_sync_activity` MCP tool
   </action>
-  <verify>npx tsc --noEmit</verify>
-  <done>Types split into 4+ files, all imports still work</done>
+  <verify>npm test -- tests/unit/sync-manager.test.js</verify>
+  <done>Activity log shows recent exports/imports from all LLMs</done>
 </task>
 
-<task type="auto" id="task-2">
-  <name>Implement auto-context detection</name>
-  <files>lib/context-files.js, lib/auto-context.js</files>
+<task type="auto" id="task-02">
+  <name>Auto-Export on Session End</name>
+  <context>
+    <why>Reduce manual steps for collaboration</why>
+    <dependencies>task-01</dependencies>
+  </context>
+  <scope>
+    <files>
+      <file action="modify">lib/session-context.js</file>
+      <file action="modify">bin/mcp/handlers/session.js</file>
+    </files>
+  </scope>
   <action>
-    Create intelligent context loading based on task type:
-
-    1. Create lib/auto-context.js with detectContextNeeds(task):
-       - Parse task description for keywords
-       - Map keywords to context files:
-         * "fix", "bug", "error" → STATE.md + PLAN.md
-         * "plan", "design", "architect" → ROADMAP.md + ISSUES.md
-         * "new feature", "implement" → PROJECT.md + ROADMAP.md
-         * "review", "test" → STATE.md + SUMMARY.md
-
-    2. Add autoLoadContext(task) function:
-       - Call detectContextNeeds()
-       - Load only required files
-       - Stay within 6K token budget
-
-    3. Integrate with goodflows_autoload_context MCP tool
+    1. Add `autoExport` option to session config
+    2. On session end, automatically call sync export if enabled
+    3. Include session summary in export message
+    4. Add CLI flag: `--auto-sync` or config option
   </action>
-  <verify>npm test -- tests/unit/auto-context.test.js</verify>
-  <done>Auto-context detection working, reduces token usage by 30%+</done>
+  <verify>npm test -- tests/unit/session-context.test.js</verify>
+  <done>Sessions auto-export context when ending (if enabled)</done>
 </task>
 
-<task type="auto" id="task-3">
-  <name>Create context health dashboard</name>
-  <files>lib/context-health.js, bin/cli/health.js</files>
+<task type="auto" id="task-03">
+  <name>Sync Status Dashboard Enhancement</name>
+  <context>
+    <why>Quick visibility into collaboration state</why>
+    <dependencies>task-01</dependencies>
+  </context>
+  <scope>
+    <files>
+      <file action="modify">lib/sync-manager.js</file>
+      <file action="modify">bin/mcp/handlers/sync.js</file>
+    </files>
+  </scope>
   <action>
-    Create CLI dashboard showing context health:
-
-    1. Create lib/context-health.js:
-       - getFileSizes() - current size of each context file
-       - getFileLimits() - token limits from spec
-       - calculateHealth() - percentage of limit used
-       - getStaleness() - days since last update
-       - getCoverage() - which files exist
-
-    2. Create bin/cli/health.js:
-       - goodflows health command
-       - Display bar chart of file sizes vs limits
-       - Color coding: green (<70%), yellow (70-90%), red (>90%)
-       - Show staleness indicators
-       - Suggest cleanup actions
-
-    3. Add MCP tool:
-       - goodflows_context_health()
-       - Returns JSON with all metrics
+    1. Enhance `status()` to include activity summary
+    2. Show time since last export for each LLM
+    3. Add "freshness" indicator (fresh/stale/outdated)
+    4. Include brief summary of what each LLM was working on
   </action>
-  <verify>goodflows health</verify>
-  <done>Health dashboard showing all context metrics</done>
+  <verify>npm test -- tests/unit/sync-manager.test.js</verify>
+  <done>Status shows activity, freshness, and work summaries</done>
 </task>
 
 </tasks>
 
-<verification>
-Before declaring complete:
-- [ ] TypeScript compilation passes
-- [ ] Auto-context detection reduces token usage
-- [ ] Health dashboard displays correctly
+## Success Criteria
+- [ ] Activity log captures all sync events
+- [ ] Auto-export works on session end
+- [ ] Status dashboard shows collaboration overview
 - [ ] All tests pass
-</verification>
 
-<success_criteria>
-- GOO-145 resolved (type file split)
-- Auto-context detection saves 30%+ tokens
-- Health dashboard provides visibility
-- Documentation updated
-</success_criteria>
+## Verification
+```bash
+npm test
+npm run lint:check
+```

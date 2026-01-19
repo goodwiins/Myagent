@@ -15,34 +15,23 @@ import { mcpResponse, mcpError } from '../tool-registry.js';
 export const tools = [
   {
     name: 'goodflows_track_file',
-    description: `Track a file operation in the current session.
+    description: `Track file operation(s) in the current session.
 
-Automatically updates stats and context. Use within a session to track files created/modified/deleted.
+Automatically updates stats and context. Accepts single path or array of paths.
 
-Example: { "sessionId": "...", "path": "src/auth.ts", "action": "created" }`,
+Examples:
+- Single: { "sessionId": "...", "path": "src/auth.ts", "action": "created" }
+- Multiple: { "sessionId": "...", "paths": ["a.js", "b.js"], "action": "modified" }`,
     inputSchema: {
       type: 'object',
       properties: {
         sessionId: { type: 'string', description: 'Session ID' },
-        path: { type: 'string', description: 'File path' },
+        path: { type: 'string', description: 'Single file path' },
+        paths: { type: 'array', items: { type: 'string' }, description: 'Multiple file paths' },
         action: { type: 'string', enum: ['created', 'modified', 'deleted'], description: 'Action type' },
         meta: { type: 'object', description: 'Optional metadata' },
       },
-      required: ['sessionId', 'path'],
-    },
-  },
-  {
-    name: 'goodflows_track_files',
-    description: 'Track multiple file operations at once',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string', description: 'Session ID' },
-        paths: { type: 'array', items: { type: 'string' }, description: 'File paths' },
-        action: { type: 'string', enum: ['created', 'modified', 'deleted'], description: 'Action type' },
-        meta: { type: 'object', description: 'Optional metadata' },
-      },
-      required: ['sessionId', 'paths'],
+      required: ['sessionId'],
     },
   },
   {
@@ -141,19 +130,19 @@ export const handlers = {
     if (!session) {
       return mcpError('Session not found', 'SESSION_NOT_FOUND');
     }
-    session.trackFile(args.path, args.action || 'modified', args.meta);
-    return mcpResponse({ success: true, path: args.path, action: args.action || 'modified' });
-  },
 
-  async goodflows_track_files(args, services) {
-    const { activeSessions } = services;
+    const action = args.action || 'modified';
 
-    const session = activeSessions.get(args.sessionId);
-    if (!session) {
-      return mcpError('Session not found', 'SESSION_NOT_FOUND');
+    // Handle both single path and multiple paths
+    if (args.paths && Array.isArray(args.paths)) {
+      session.trackFiles(args.paths, action, args.meta);
+      return mcpResponse({ success: true, count: args.paths.length, action });
+    } else if (args.path) {
+      session.trackFile(args.path, action, args.meta);
+      return mcpResponse({ success: true, path: args.path, action });
+    } else {
+      return mcpError('Either path or paths is required', 'INVALID_ARGS');
     }
-    session.trackFiles(args.paths, args.action || 'modified', args.meta);
-    return mcpResponse({ success: true, count: args.paths.length, action: args.action || 'modified' });
   },
 
   async goodflows_track_issue(args, services) {

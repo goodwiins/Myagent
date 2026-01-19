@@ -50,91 +50,55 @@ Use this to understand the current project context.`,
     },
   },
 
-  // ========== LLM Handoff Tools ==========
+  // ========== LLM Handoff Tool ==========
   {
-    name: 'goodflows_export_handoff',
-    description: `Export current GoodFlows state for LLM/IDE handoff.
+    name: 'goodflows_handoff',
+    description: `Manage LLM/IDE context handoffs. Unified tool for export, import, and prompt generation.
 
-Use this when switching between LLMs (Claude → GPT-4 → Gemini) or IDEs (Cursor → VS Code → Windsurf).
-Returns everything needed for another LLM to resume work seamlessly.
+Directions:
+- "export": Export current state for handoff (default)
+- "import": Import state from another environment
+- "prompt": Generate resume prompt for another LLM
 
-Returns:
-- Project and GitHub context
-- Active sessions with their state
-- Recent findings and issues
-- Current work in progress
-- Resume instructions`,
+Examples:
+- Export: { "direction": "export", "sessionId": "..." }
+- Import: { "direction": "import", "content": "{...}" }
+- Prompt: { "direction": "prompt", "style": "detailed" }`,
     inputSchema: {
       type: 'object',
       properties: {
+        direction: {
+          type: 'string',
+          enum: ['export', 'import', 'prompt'],
+          description: 'Operation direction (default: export)',
+        },
+        // For export
         sessionId: {
           type: 'string',
-          description: 'Specific session to export (optional, exports all active if not specified)',
+          description: 'Session ID (for export/prompt)',
         },
         includeFindings: {
           type: 'boolean',
-          description: 'Include recent findings (default: true)',
+          description: 'Include recent findings (for export, default: true)',
         },
         findingsLimit: {
           type: 'number',
-          description: 'Max findings to include (default: 20)',
+          description: 'Max findings to include (for export, default: 20)',
         },
-      },
-    },
-  },
-  {
-    name: 'goodflows_import_handoff',
-    description: `Import a GoodFlows context handoff from another environment.
-
-Restores session state, findings, and project context.
-Use this when picking up work started in another tool (e.g. CLI -> IDE).
-
-Effects:
-- Restores session files to .goodflows/context/sessions/
-- Restores findings to context store
-- Runs post-handoff hooks (e.g. npm install)`,
-    inputSchema: {
-      type: 'object',
-      properties: {
+        // For import
         content: {
           type: 'string',
-          description: 'The JSON content string returned by goodflows_export_handoff',
+          description: 'JSON content from export (for import)',
         },
-        sessionId: {
-          type: 'string',
-          description: 'Optional: Force a specific session ID for the import',
-        },
-      },
-      required: ['content'],
-    },
-  },
-  {
-    name: 'goodflows_generate_resume_prompt',
-    description: `Generate a prompt for another LLM to resume work.
-
-Creates a ready-to-paste prompt that gives any LLM full context to continue where you left off.
-Works with Claude, GPT-4, Gemini, or any other model.
-
-The generated prompt includes:
-- Project context and current state
-- Active work and progress
-- What was done and what remains
-- Specific instructions for resuming`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: {
-          type: 'string',
-          description: 'Session to generate prompt for',
-        },
+        // For prompt
         style: {
           type: 'string',
           enum: ['concise', 'detailed', 'technical'],
-          description: 'Prompt style (default: concise)',
+          description: 'Prompt style (for prompt, default: concise)',
         },
         includeFiles: {
           type: 'boolean',
-          description: 'Include list of modified files (default: true)',
+          description: 'Include modified files list (for prompt, default: true)',
         },
       },
     },
@@ -321,51 +285,38 @@ Example:
 
   // ========== Context File Tools ==========
   {
-    name: 'goodflows_context_file_read',
-    description: `Read a structured context file (PROJECT, ROADMAP, STATE, PLAN, SUMMARY, ISSUES).
+    name: 'goodflows_context_file',
+    description: `Manage structured context files (PROJECT, ROADMAP, STATE, PLAN, SUMMARY, ISSUES).
 
-These files provide persistent context for Claude agents:
-- PROJECT.md: Project vision (always loaded, 2K token limit)
-- ROADMAP.md: Goals and milestones (3K token limit)
-- STATE.md: Session memory across contexts (1.5K token limit)
-- PLAN.md: Current atomic task in XML format (1K token limit)
-- SUMMARY.md: Execution history (5K token limit)
-- ISSUES.md: Deferred work queue (2K token limit)`,
+Actions:
+- "read": Read a context file
+- "write": Write to a context file (enforces size limits)
+- "init": Initialize all context files with templates
+
+Size limits: PROJECT 2K, ROADMAP 3K, STATE 1.5K, PLAN 1K, SUMMARY 5K, ISSUES 2K
+
+Examples:
+- Read: { "action": "read", "file": "PROJECT" }
+- Write: { "action": "write", "file": "STATE", "content": "..." }
+- Init: { "action": "init", "force": true }`,
     inputSchema: {
       type: 'object',
       properties: {
+        action: {
+          type: 'string',
+          enum: ['read', 'write', 'init'],
+          description: 'Operation to perform',
+        },
         file: {
           type: 'string',
           enum: ['PROJECT', 'ROADMAP', 'STATE', 'PLAN', 'SUMMARY', 'ISSUES'],
-          description: 'Context file type to read',
+          description: 'Context file type (for read/write)',
         },
+        content: { type: 'string', description: 'Content to write (for write)' },
+        allowOversize: { type: 'boolean', description: 'Allow exceeding size limit (for write, default: false)' },
+        force: { type: 'boolean', description: 'Overwrite existing files (for init, default: false)' },
       },
-      required: ['file'],
-    },
-  },
-  {
-    name: 'goodflows_context_file_write',
-    description: `Write to a structured context file. Enforces size limits.
-
-Size limits (in tokens):
-- PROJECT: 2000
-- ROADMAP: 3000
-- STATE: 1500
-- PLAN: 1000
-- SUMMARY: 5000
-- ISSUES: 2000`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        file: {
-          type: 'string',
-          enum: ['PROJECT', 'ROADMAP', 'STATE', 'PLAN', 'SUMMARY', 'ISSUES'],
-          description: 'Context file type to write',
-        },
-        content: { type: 'string', description: 'Content to write' },
-        allowOversize: { type: 'boolean', description: 'Allow exceeding size limit (default: false)' },
-      },
-      required: ['file', 'content'],
+      required: ['action'],
     },
   },
   {
@@ -374,16 +325,6 @@ Size limits (in tokens):
     inputSchema: {
       type: 'object',
       properties: {},
-    },
-  },
-  {
-    name: 'goodflows_context_file_init',
-    description: 'Initialize context file structure with templates. Creates .goodflows/ directory and all context files.',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        force: { type: 'boolean', description: 'Overwrite existing files (default: false)' },
-      },
     },
   },
   {
@@ -419,14 +360,28 @@ Updates can include:
     },
   },
   {
-    name: 'goodflows_summary_add',
-    description: 'Add an execution entry to SUMMARY.md. Auto-archives old entries.',
+    name: 'goodflows_summary',
+    description: `Manage SUMMARY.md entries. Add execution entries or create plan summaries.
+
+Modes:
+- "add": Add execution entry to SUMMARY.md (auto-archives old entries)
+- "create": Create SUMMARY.md for a completed plan with commits, deviations, metrics
+
+Examples:
+- Add entry: { "mode": "add", "task": "Fix auth", "status": "success" }
+- Create plan summary: { "mode": "create", "phase": 2, "planNumber": 1 }`,
     inputSchema: {
       type: 'object',
       properties: {
-        task: { type: 'string', description: 'Task name' },
-        status: { type: 'string', enum: ['success', 'partial', 'failed'], description: 'Execution status' },
-        changes: { type: 'array', items: { type: 'string' }, description: 'List of changes made' },
+        mode: {
+          type: 'string',
+          enum: ['add', 'create'],
+          description: 'Operation mode (default: add)',
+        },
+        // For mode="add"
+        task: { type: 'string', description: 'Task name (for add)' },
+        status: { type: 'string', enum: ['success', 'partial', 'failed'], description: 'Execution status (for add)' },
+        changes: { type: 'array', items: { type: 'string' }, description: 'List of changes made (for add)' },
         verification: {
           type: 'array',
           items: {
@@ -436,22 +391,12 @@ Updates can include:
               passed: { type: 'boolean' },
             },
           },
+          description: 'Verification results (for add)',
         },
-        notes: { type: 'string', description: 'Additional notes' },
-      },
-      required: ['task', 'status'],
-    },
-  },
-  {
-    name: 'goodflows_summary_create',
-    description: `Create a SUMMARY.md for a completed plan.
-
-Documents what was accomplished, task commits, deviations, and metrics.`,
-    inputSchema: {
-      type: 'object',
-      properties: {
-        phase: { type: ['number', 'string'], description: 'Phase number or name' },
-        planNumber: { type: 'number', description: 'Plan number' },
+        notes: { type: 'string', description: 'Additional notes (for add)' },
+        // For mode="create"
+        phase: { type: ['number', 'string'], description: 'Phase number or name (for create)' },
+        planNumber: { type: 'number', description: 'Plan number (for create)' },
         taskCommits: {
           type: 'array',
           items: {
@@ -462,12 +407,12 @@ Documents what was accomplished, task commits, deviations, and metrics.`,
               type: { type: 'string', enum: ['feat', 'fix', 'test', 'refactor', 'perf', 'chore', 'docs'] },
             },
           },
-          description: 'Array of task commit info',
+          description: 'Task commit info (for create)',
         },
         accomplishments: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Key accomplishments',
+          description: 'Key accomplishments (for create)',
         },
         deviations: {
           type: 'array',
@@ -485,7 +430,7 @@ Documents what was accomplished, task commits, deviations, and metrics.`,
               commitHash: { type: 'string' },
             },
           },
-          description: 'Deviations from plan',
+          description: 'Deviations from plan (for create)',
         },
         metrics: {
           type: 'object',
@@ -507,10 +452,9 @@ Documents what was accomplished, task commits, deviations, and metrics.`,
             keyDecisions: { type: 'array', items: { type: 'string' } },
             nextPhaseReadiness: { type: 'string' },
           },
-          description: 'Performance metrics and metadata',
+          description: 'Performance metrics (for create)',
         },
       },
-      required: ['phase', 'planNumber'],
     },
   },
   {
@@ -578,224 +522,227 @@ export const handlers = {
     return mcpResponse(context);
   },
 
-  async goodflows_export_handoff(args, services) {
-    const { activeSessions, contextStore, getProjectContext } = services;
+  async goodflows_handoff(args, services) {
+    const { activeSessions, contextStore, getProjectContext, goodflowsBasePath } = services;
+    const direction = args.direction || 'export';
 
-    // Run pre-handoff hook if exists
-    const preHookPath = join(process.cwd(), 'bin', 'hooks', 'pre-handoff.js');
-    if (existsSync(preHookPath)) {
-      try {
-        const { execSync } = await import('child_process');
-        execSync(`node "${preHookPath}"`, { stdio: 'inherit' });
-      } catch (e) {
-        console.error('Warning: Pre-handoff hook failed:', e.message);
-      }
-    }
-
-    const projectContext = getProjectContext();
-    const includeFindings = args.includeFindings !== false;
-    const findingsLimit = args.findingsLimit || 20;
-
-    // Collect session data
-    const sessions = [];
-    if (args.sessionId) {
-      const session = activeSessions.get(args.sessionId);
-      if (session) {
-        sessions.push({
-          id: args.sessionId,
-          state: session.getState(),
-          metadata: session.session?.metadata,
-          stats: session.getStats(),
-          currentWork: session.getCurrentWork(),
-          completedWork: session.getCompletedWork(),
-          tracking: session.getTrackingSummary(),
-          recentEvents: session.getEvents().slice(-10),
-          rawContext: session.session?.context,
-        });
-      }
-    } else {
-      for (const [id, session] of activeSessions) {
-        sessions.push({
-          id,
-          state: session.getState(),
-          metadata: session.session?.metadata,
-          stats: session.getStats(),
-          currentWork: session.getCurrentWork(),
-          completedWork: session.getCompletedWork(),
-          tracking: session.getTrackingSummary(),
-          recentEvents: session.getEvents().slice(-10),
-          rawContext: session.session?.context,
-        });
-      }
-    }
-
-    // Get recent findings
-    let findings = [];
-    if (includeFindings) {
-      const allFindings = contextStore.query({ limit: findingsLimit });
-      findings = allFindings.map(f => ({
-        type: f.type,
-        file: f.file,
-        description: f.description,
-        status: f.status,
-        issueId: f.issueId,
-        lines: f.lines,
-        severity: f.severity,
-        _hash: f._hash,
-      }));
-    }
-
-    const handoff = {
-      exportedAt: new Date().toISOString(),
-      project: {
-        name: projectContext.project.name,
-        version: projectContext.project.version,
-        description: projectContext.project.description,
-      },
-      github: {
-        url: projectContext.github.url,
-        owner: projectContext.github.owner,
-        repo: projectContext.github.repo,
-        branch: projectContext.github.branch,
-      },
-      sessions,
-      findings,
-      stats: {
-        totalSessions: sessions.length,
-        totalFindings: findings.length,
-        contextStats: contextStore.getStats(),
-      },
-      resumeInstructions: [
-        'Configure GoodFlows MCP server in your IDE',
-        'Run: goodflows_project_info() to verify connection',
-        'Run: goodflows_import_handoff({ content: <JSON> }) to restore state',
-        sessions.length > 0
-          ? `Resume session: goodflows_session_resume({ sessionId: "${sessions[0]?.id}" })`
-          : 'Start new session: goodflows_session_start({ trigger: "handoff-resume" })',
-        'Use goodflows_get_tracking_summary() to see current progress',
-      ],
-    };
-
-    return mcpResponse(handoff);
-  },
-
-  async goodflows_import_handoff(args, services) {
-    const { contextStore, goodflowsBasePath } = services;
-
-    try {
-      const content = typeof args.content === 'string'
-        ? JSON.parse(args.content)
-        : args.content;
-
-      // 1. Restore sessions
-      const restoredSessions = [];
-      if (content.sessions && Array.isArray(content.sessions)) {
-        const { writeFileSync, mkdirSync } = await import('fs');
-        const sessionsDir = join(goodflowsBasePath, 'context', 'sessions');
-        mkdirSync(sessionsDir, { recursive: true });
-
-        for (const sessionData of content.sessions) {
-          const sessionId = args.sessionId || sessionData.id;
-
-          const fullSession = {
-            id: sessionId,
-            state: sessionData.state || 'running',
-            metadata: sessionData.metadata || {},
-            timestamps: {
-              created: new Date().toISOString(),
-              started: new Date().toISOString(),
-              updated: new Date().toISOString(),
-            },
-            context: sessionData.rawContext || {},
-            invocations: [],
-            events: sessionData.recentEvents || [],
-            checkpoints: [],
-            stats: sessionData.stats || {},
-            tracking: {
-              files: { created: [], modified: [], deleted: [] },
-              issues: { created: [], fixed: [], skipped: [], failed: [] },
-              findings: [],
-              work: sessionData.completedWork || [],
-              currentWork: sessionData.currentWork || null,
-              plans: { active: null, completed: [], history: [] },
-            },
-          };
-
-          const sessionPath = join(sessionsDir, `${sessionId}.json`);
-          writeFileSync(sessionPath, JSON.stringify(fullSession, null, 2));
-          restoredSessions.push(sessionId);
+    switch (direction) {
+      case 'export': {
+        // Run pre-handoff hook if exists
+        const preHookPath = join(process.cwd(), 'bin', 'hooks', 'pre-handoff.js');
+        if (existsSync(preHookPath)) {
+          try {
+            const { execSync } = await import('child_process');
+            execSync(`node "${preHookPath}"`, { stdio: 'inherit' });
+          } catch (e) {
+            console.error('Warning: Pre-handoff hook failed:', e.message);
+          }
         }
-      }
 
-      // 2. Restore findings
-      let findingsRestored = 0;
-      if (content.findings && Array.isArray(content.findings)) {
-        for (const finding of content.findings) {
-          contextStore.addFinding(finding);
-          findingsRestored++;
+        const projectContext = getProjectContext();
+        const includeFindings = args.includeFindings !== false;
+        const findingsLimit = args.findingsLimit || 20;
+
+        // Collect session data
+        const sessions = [];
+        if (args.sessionId) {
+          const session = activeSessions.get(args.sessionId);
+          if (session) {
+            sessions.push({
+              id: args.sessionId,
+              state: session.getState(),
+              metadata: session.session?.metadata,
+              stats: session.getStats(),
+              currentWork: session.getCurrentWork(),
+              completedWork: session.getCompletedWork(),
+              tracking: session.getTrackingSummary(),
+              recentEvents: session.getEvents().slice(-10),
+              rawContext: session.session?.context,
+            });
+          }
+        } else {
+          for (const [id, session] of activeSessions) {
+            sessions.push({
+              id,
+              state: session.getState(),
+              metadata: session.session?.metadata,
+              stats: session.getStats(),
+              currentWork: session.getCurrentWork(),
+              completedWork: session.getCompletedWork(),
+              tracking: session.getTrackingSummary(),
+              recentEvents: session.getEvents().slice(-10),
+              rawContext: session.session?.context,
+            });
+          }
         }
-      }
 
-      // 3. Run post-handoff hook
-      const postHookPath = join(process.cwd(), 'bin', 'hooks', 'post-handoff.js');
-      let hookResult = 'skipped';
-      if (existsSync(postHookPath)) {
-        try {
-          const { execSync } = await import('child_process');
-          execSync(`node "${postHookPath}"`, { stdio: 'inherit' });
-          hookResult = 'success';
-        } catch (e) {
-          hookResult = `failed: ${e.message}`;
+        // Get recent findings
+        let findings = [];
+        if (includeFindings) {
+          const allFindings = contextStore.query({ limit: findingsLimit });
+          findings = allFindings.map(f => ({
+            type: f.type,
+            file: f.file,
+            description: f.description,
+            status: f.status,
+            issueId: f.issueId,
+            lines: f.lines,
+            severity: f.severity,
+            _hash: f._hash,
+          }));
         }
-      }
 
-      return mcpResponse({
-        success: true,
-        sessionsRestored: restoredSessions,
-        findingsRestored,
-        hookStatus: hookResult,
-        nextSteps: restoredSessions.length > 0
-          ? `Resume with: goodflows_session_resume({ sessionId: "${restoredSessions[0]}" })`
-          : 'Start new session: goodflows_session_start()',
-      });
-    } catch (error) {
-      return mcpError(`Import failed: ${error.message}`, 'IMPORT_ERROR');
-    }
-  },
-
-  async goodflows_generate_resume_prompt(args, services) {
-    const { activeSessions, contextStore, getProjectContext } = services;
-
-    const projectContext = getProjectContext();
-    const style = args.style || 'concise';
-    const includeFiles = args.includeFiles !== false;
-
-    let sessionData = null;
-    let trackingSummary = null;
-    let currentWork = null;
-    let completedWork = [];
-
-    if (args.sessionId) {
-      const session = activeSessions.get(args.sessionId);
-      if (session) {
-        sessionData = {
-          id: args.sessionId,
-          state: session.getState(),
-          metadata: session.session?.metadata,
-          stats: session.getStats(),
+        const handoff = {
+          exportedAt: new Date().toISOString(),
+          project: {
+            name: projectContext.project.name,
+            version: projectContext.project.version,
+            description: projectContext.project.description,
+          },
+          github: {
+            url: projectContext.github.url,
+            owner: projectContext.github.owner,
+            repo: projectContext.github.repo,
+            branch: projectContext.github.branch,
+          },
+          sessions,
+          findings,
+          stats: {
+            totalSessions: sessions.length,
+            totalFindings: findings.length,
+            contextStats: contextStore.getStats(),
+          },
+          resumeInstructions: [
+            'Configure GoodFlows MCP server in your IDE',
+            'Run: goodflows_project_info() to verify connection',
+            'Run: goodflows_handoff({ direction: "import", content: <JSON> }) to restore state',
+            sessions.length > 0
+              ? `Resume session: goodflows_session_resume({ sessionId: "${sessions[0]?.id}" })`
+              : 'Start new session: goodflows_session_start({ trigger: "handoff-resume" })',
+            'Use goodflows_get_tracking_summary() to see current progress',
+          ],
         };
-        trackingSummary = session.getTrackingSummary();
-        currentWork = session.getCurrentWork();
-        completedWork = session.getCompletedWork();
+
+        return mcpResponse(handoff);
       }
-    }
 
-    const recentFindings = contextStore.query({ status: 'open', limit: 5 });
+      case 'import': {
+        if (!args.content) {
+          return mcpError('content is required for direction=import', 'INVALID_ARGS');
+        }
 
-    let prompt = '';
+        try {
+          const content = typeof args.content === 'string'
+            ? JSON.parse(args.content)
+            : args.content;
 
-    if (style === 'concise') {
-      prompt = `# Resume Context
+          // 1. Restore sessions
+          const restoredSessions = [];
+          if (content.sessions && Array.isArray(content.sessions)) {
+            const { writeFileSync, mkdirSync } = await import('fs');
+            const sessionsDir = join(goodflowsBasePath, 'context', 'sessions');
+            mkdirSync(sessionsDir, { recursive: true });
+
+            for (const sessionData of content.sessions) {
+              const sessionId = args.sessionId || sessionData.id;
+
+              const fullSession = {
+                id: sessionId,
+                state: sessionData.state || 'running',
+                metadata: sessionData.metadata || {},
+                timestamps: {
+                  created: new Date().toISOString(),
+                  started: new Date().toISOString(),
+                  updated: new Date().toISOString(),
+                },
+                context: sessionData.rawContext || {},
+                invocations: [],
+                events: sessionData.recentEvents || [],
+                checkpoints: [],
+                stats: sessionData.stats || {},
+                tracking: {
+                  files: { created: [], modified: [], deleted: [] },
+                  issues: { created: [], fixed: [], skipped: [], failed: [] },
+                  findings: [],
+                  work: sessionData.completedWork || [],
+                  currentWork: sessionData.currentWork || null,
+                  plans: { active: null, completed: [], history: [] },
+                },
+              };
+
+              const sessionPath = join(sessionsDir, `${sessionId}.json`);
+              writeFileSync(sessionPath, JSON.stringify(fullSession, null, 2));
+              restoredSessions.push(sessionId);
+            }
+          }
+
+          // 2. Restore findings
+          let findingsRestored = 0;
+          if (content.findings && Array.isArray(content.findings)) {
+            for (const finding of content.findings) {
+              contextStore.addFinding(finding);
+              findingsRestored++;
+            }
+          }
+
+          // 3. Run post-handoff hook
+          const postHookPath = join(process.cwd(), 'bin', 'hooks', 'post-handoff.js');
+          let hookResult = 'skipped';
+          if (existsSync(postHookPath)) {
+            try {
+              const { execSync } = await import('child_process');
+              execSync(`node "${postHookPath}"`, { stdio: 'inherit' });
+              hookResult = 'success';
+            } catch (e) {
+              hookResult = `failed: ${e.message}`;
+            }
+          }
+
+          return mcpResponse({
+            success: true,
+            sessionsRestored: restoredSessions,
+            findingsRestored,
+            hookStatus: hookResult,
+            nextSteps: restoredSessions.length > 0
+              ? `Resume with: goodflows_session_resume({ sessionId: "${restoredSessions[0]}" })`
+              : 'Start new session: goodflows_session_start()',
+          });
+        } catch (error) {
+          return mcpError(`Import failed: ${error.message}`, 'IMPORT_ERROR');
+        }
+      }
+
+      case 'prompt': {
+        const projectContext = getProjectContext();
+        const style = args.style || 'concise';
+        const includeFiles = args.includeFiles !== false;
+
+        let sessionData = null;
+        let trackingSummary = null;
+        let currentWork = null;
+        let completedWork = [];
+
+        if (args.sessionId) {
+          const session = activeSessions.get(args.sessionId);
+          if (session) {
+            sessionData = {
+              id: args.sessionId,
+              state: session.getState(),
+              metadata: session.session?.metadata,
+              stats: session.getStats(),
+            };
+            trackingSummary = session.getTrackingSummary();
+            currentWork = session.getCurrentWork();
+            completedWork = session.getCompletedWork();
+          }
+        }
+
+        const recentFindings = contextStore.query({ status: 'open', limit: 5 });
+
+        let prompt = '';
+
+        if (style === 'concise') {
+          prompt = `# Resume Context
 
 ## Project
 - **Name**: ${projectContext.project.name} (v${projectContext.project.version || 'unknown'})
@@ -819,8 +766,8 @@ ${recentFindings.length > 0 ? recentFindings.map(f => `- [${f.type}] ${f.descrip
 ${sessionData ? `2. Resume: \`goodflows_session_resume({ sessionId: "${sessionData.id}" })\`` : '2. Start: `goodflows_session_start({ trigger: "handoff" })`'}
 3. Check progress: \`goodflows_get_tracking_summary()\`
 `;
-    } else if (style === 'detailed') {
-      prompt = `# Context Handoff - Resume Work
+        } else if (style === 'detailed') {
+          prompt = `# Context Handoff - Resume Work
 
 ## Project Information
 You are resuming work on **${projectContext.project.name}**${projectContext.project.version ? ` version ${projectContext.project.version}` : ''}.
@@ -901,8 +848,8 @@ ${recentFindings.length > 0 ? recentFindings.map(f => `
    goodflows_context_query({ status: "open" })
    \`\`\`
 `;
-    } else { // technical
-      prompt = `# GoodFlows Context Handoff
+        } else { // technical
+          prompt = `# GoodFlows Context Handoff
 
 \`\`\`json
 ${JSON.stringify({
@@ -930,9 +877,14 @@ await goodflows_get_tracking_summary()
 await goodflows_context_query({ status: "open", limit: 10 })
 \`\`\`
 `;
-    }
+        }
 
-    return mcpResponse({ prompt });
+        return mcpResponse({ prompt });
+      }
+
+      default:
+        return mcpError(`Unknown direction: ${direction}. Valid: export, import, prompt`, 'INVALID_DIRECTION');
+    }
   },
 
   async goodflows_sync_linear(args, services) {
@@ -1258,27 +1210,38 @@ await goodflows_context_query({ status: "open", limit: 10 })
     }
   },
 
-  async goodflows_context_file_read(args, services) {
+  async goodflows_context_file(args, services) {
     const { contextFileManager } = services;
+    const action = args.action;
 
-    try {
-      const result = await contextFileManager.read(args.file);
-      return mcpResponse(result);
-    } catch (error) {
-      return mcpError(error.message, 'READ_ERROR');
+    if (!action) {
+      return mcpError('action is required (read, write, or init)', 'INVALID_ARGS');
     }
-  },
-
-  async goodflows_context_file_write(args, services) {
-    const { contextFileManager } = services;
 
     try {
-      const result = await contextFileManager.write(args.file, args.content, {
-        allowOversize: args.allowOversize,
-      });
-      return mcpResponse(result);
+      switch (action) {
+        case 'read':
+          if (!args.file) {
+            return mcpError('file is required for action=read', 'INVALID_ARGS');
+          }
+          return mcpResponse(await contextFileManager.read(args.file));
+
+        case 'write':
+          if (!args.file || !args.content) {
+            return mcpError('file and content are required for action=write', 'INVALID_ARGS');
+          }
+          return mcpResponse(await contextFileManager.write(args.file, args.content, {
+            allowOversize: args.allowOversize,
+          }));
+
+        case 'init':
+          return mcpResponse(await contextFileManager.init({ force: args.force }));
+
+        default:
+          return mcpError(`Unknown action: ${action}. Valid: read, write, init`, 'INVALID_ACTION');
+      }
     } catch (error) {
-      return mcpError(error.message, 'WRITE_ERROR');
+      return mcpError(error.message, 'CONTEXT_FILE_ERROR');
     }
   },
 
@@ -1293,17 +1256,6 @@ await goodflows_context_query({ status: "open", limit: 10 })
     }
   },
 
-  async goodflows_context_file_init(args, services) {
-    const { contextFileManager } = services;
-
-    try {
-      const result = await contextFileManager.init({ force: args.force });
-      return mcpResponse(result);
-    } catch (error) {
-      return mcpError(error.message, 'INIT_ERROR');
-    }
-  },
-
   async goodflows_state_update(args, services) {
     const { contextFileManager } = services;
 
@@ -1315,38 +1267,46 @@ await goodflows_context_query({ status: "open", limit: 10 })
     }
   },
 
-  async goodflows_summary_add(args, services) {
-    const { contextFileManager } = services;
+  async goodflows_summary(args, services) {
+    const { contextFileManager, phaseManager } = services;
+    const mode = args.mode || 'add';
 
     try {
-      const result = await contextFileManager.addSummary({
-        task: args.task,
-        status: args.status,
-        changes: args.changes,
-        verification: args.verification,
-        notes: args.notes,
-      });
-      return mcpResponse(result);
+      switch (mode) {
+        case 'add': {
+          if (!args.task || !args.status) {
+            return mcpError('task and status are required for mode=add', 'INVALID_ARGS');
+          }
+          const result = await contextFileManager.addSummary({
+            task: args.task,
+            status: args.status,
+            changes: args.changes,
+            verification: args.verification,
+            notes: args.notes,
+          });
+          return mcpResponse(result);
+        }
+
+        case 'create': {
+          if (args.phase === undefined || args.planNumber === undefined) {
+            return mcpError('phase and planNumber are required for mode=create', 'INVALID_ARGS');
+          }
+          const result = await phaseManager.createSummary({
+            phase: args.phase,
+            planNumber: args.planNumber,
+            taskCommits: args.taskCommits,
+            accomplishments: args.accomplishments,
+            deviations: args.deviations,
+            metrics: args.metrics,
+          });
+          return mcpResponse(result);
+        }
+
+        default:
+          return mcpError(`Unknown mode: ${mode}. Valid: add, create`, 'INVALID_MODE');
+      }
     } catch (error) {
       return mcpError(error.message, 'SUMMARY_ERROR');
-    }
-  },
-
-  async goodflows_summary_create(args, services) {
-    const { phaseManager } = services;
-
-    try {
-      const result = await phaseManager.createSummary({
-        phase: args.phase,
-        planNumber: args.planNumber,
-        taskCommits: args.taskCommits,
-        accomplishments: args.accomplishments,
-        deviations: args.deviations,
-        metrics: args.metrics,
-      });
-      return mcpResponse(result);
-    } catch (error) {
-      return mcpError(error.message, 'SUMMARY_CREATE_ERROR');
     }
   },
 

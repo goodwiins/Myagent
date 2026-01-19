@@ -78,17 +78,20 @@ Example: { "phase": 2, "sessionId": "...", "maxTasksPerPlan": 3 }`,
   },
   {
     name: 'goodflows_phase_status',
-    description: `Get current phase progress.
+    description: `Get phase progress. Can show single phase or list all phases.
 
-Returns:
-- Phase info (number, name, status)
-- Plans count (total, completed, current, pending)
-- Tasks counts and progress percentage
-- Next recommended action`,
+Returns phase info, plans count, tasks progress, and next action.
+Use includeList=true to get all phases in one call.
+
+Examples:
+- Current phase: { }
+- Specific phase: { "phase": 2 }
+- All phases: { "includeList": true }`,
     inputSchema: {
       type: 'object',
       properties: {
         phase: { type: ['number', 'string'], description: 'Phase to check (default: current)' },
+        includeList: { type: 'boolean', description: 'Include list of all phases (default: false)' },
       },
     },
   },
@@ -119,16 +122,6 @@ Syncs the roadmap file with actual phase status from disk.`,
         milestone: { type: 'string', description: 'Update milestone name' },
         targetDate: { type: 'string', description: 'Update target date' },
       },
-    },
-  },
-  {
-    name: 'goodflows_phase_list',
-    description: `List all phases and their status.
-
-Returns array of phases with their plans and completion status.`,
-    inputSchema: {
-      type: 'object',
-      properties: {},
     },
   },
 ];
@@ -176,6 +169,13 @@ export const handlers = {
     const { phaseManager } = services;
 
     const result = phaseManager.getPhaseStatus(args.phase);
+
+    // Include list of all phases if requested
+    if (args.includeList) {
+      const phases = phaseManager.listPhases();
+      return mcpResponse({ ...result, phases });
+    }
+
     return mcpResponse(result);
   },
 
@@ -196,13 +196,6 @@ export const handlers = {
       targetDate: args.targetDate,
     });
     return mcpResponse(result);
-  },
-
-  async goodflows_phase_list(args, services) {
-    const { phaseManager } = services;
-
-    const phases = phaseManager.listPhases();
-    return mcpResponse({ phases });
   },
 };
 

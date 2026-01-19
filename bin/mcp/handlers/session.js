@@ -38,52 +38,47 @@ Returns sessionId that should be passed to other agents for context propagation.
     },
   },
   {
-    name: 'goodflows_session_get_context',
-    description: 'Get value from session context (dot notation supported)',
+    name: 'goodflows_session_context',
+    description: `Get or set session context values. Supports dot notation paths.
+
+Actions:
+- "get": Get value from session context (default)
+- "set": Set value in session context
+
+Examples:
+- Get: { "action": "get", "sessionId": "...", "path": "findings.all" }
+- Set: { "action": "set", "sessionId": "...", "path": "custom.data", "value": {...} }`,
     inputSchema: {
       type: 'object',
       properties: {
+        action: { type: 'string', enum: ['get', 'set'], description: 'Operation (default: get)' },
         sessionId: { type: 'string' },
         path: { type: 'string', description: 'Context path (e.g., findings.all, issues.created)' },
+        value: { description: 'Value to store (for set, any JSON type)' },
       },
       required: ['sessionId', 'path'],
     },
   },
   {
-    name: 'goodflows_session_set_context',
-    description: 'Set value in session context for other agents to read',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string' },
-        path: { type: 'string', description: 'Context path' },
-        value: { description: 'Value to store (any JSON type)' },
-      },
-      required: ['sessionId', 'path', 'value'],
-    },
-  },
-  {
     name: 'goodflows_session_checkpoint',
-    description: 'Create a checkpoint for potential rollback',
+    description: `Create or rollback to a checkpoint.
+
+Actions:
+- "create": Create a checkpoint for potential rollback (default)
+- "rollback": Rollback session to a checkpoint
+
+Examples:
+- Create: { "sessionId": "...", "name": "before_fixes" }
+- Rollback: { "action": "rollback", "sessionId": "...", "checkpointId": "..." }`,
     inputSchema: {
       type: 'object',
       properties: {
+        action: { type: 'string', enum: ['create', 'rollback'], description: 'Operation (default: create)' },
         sessionId: { type: 'string' },
-        name: { type: 'string', description: 'Checkpoint name (e.g., before_fixes)' },
+        name: { type: 'string', description: 'Checkpoint name (for create)' },
+        checkpointId: { type: 'string', description: 'Checkpoint ID (for rollback)' },
       },
-      required: ['sessionId', 'name'],
-    },
-  },
-  {
-    name: 'goodflows_session_rollback',
-    description: 'Rollback session to a checkpoint',
-    inputSchema: {
-      type: 'object',
-      properties: {
-        sessionId: { type: 'string' },
-        checkpointId: { type: 'string' },
-      },
-      required: ['sessionId', 'checkpointId'],
+      required: ['sessionId'],
     },
   },
   {
@@ -161,48 +156,53 @@ export const handlers = {
     });
   },
 
-  async goodflows_session_get_context(args, services) {
+  async goodflows_session_context(args, services) {
     const { activeSessions } = services;
+    const action = args.action || 'get';
 
     const session = activeSessions.get(args.sessionId);
     if (!session) {
       return mcpError('Session not found', 'SESSION_NOT_FOUND');
     }
-    const value = session.get(args.path);
-    return mcpResponse({ path: args.path, value });
-  },
 
-  async goodflows_session_set_context(args, services) {
-    const { activeSessions } = services;
-
-    const session = activeSessions.get(args.sessionId);
-    if (!session) {
-      return mcpError('Session not found', 'SESSION_NOT_FOUND');
+    if (action === 'get') {
+      const value = session.get(args.path);
+      return mcpResponse({ path: args.path, value });
+    } else if (action === 'set') {
+      if (args.value === undefined) {
+        return mcpError('value is required for action=set', 'INVALID_ARGS');
+      }
+      session.set(args.path, args.value);
+      return mcpResponse({ success: true, path: args.path });
+    } else {
+      return mcpError(`Unknown action: ${action}. Valid: get, set`, 'INVALID_ACTION');
     }
-    session.set(args.path, args.value);
-    return mcpResponse({ success: true, path: args.path });
   },
 
   async goodflows_session_checkpoint(args, services) {
     const { activeSessions } = services;
+    const action = args.action || 'create';
 
     const session = activeSessions.get(args.sessionId);
     if (!session) {
       return mcpError('Session not found', 'SESSION_NOT_FOUND');
     }
-    const checkpointId = session.checkpoint(args.name);
-    return mcpResponse({ checkpointId, name: args.name });
-  },
 
-  async goodflows_session_rollback(args, services) {
-    const { activeSessions } = services;
-
-    const session = activeSessions.get(args.sessionId);
-    if (!session) {
-      return mcpError('Session not found', 'SESSION_NOT_FOUND');
+    if (action === 'create') {
+      if (!args.name) {
+        return mcpError('name is required for action=create', 'INVALID_ARGS');
+      }
+      const checkpointId = session.checkpoint(args.name);
+      return mcpResponse({ checkpointId, name: args.name });
+    } else if (action === 'rollback') {
+      if (!args.checkpointId) {
+        return mcpError('checkpointId is required for action=rollback', 'INVALID_ARGS');
+      }
+      session.rollback(args.checkpointId);
+      return mcpResponse({ success: true, rolledBackTo: args.checkpointId });
+    } else {
+      return mcpError(`Unknown action: ${action}. Valid: create, rollback`, 'INVALID_ACTION');
     }
-    session.rollback(args.checkpointId);
-    return mcpResponse({ success: true, rolledBackTo: args.checkpointId });
   },
 
   async goodflows_session_end(args, services) {
